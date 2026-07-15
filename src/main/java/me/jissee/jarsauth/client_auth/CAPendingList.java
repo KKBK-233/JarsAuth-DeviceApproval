@@ -37,7 +37,6 @@ public class CAPendingList {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final CAPendingList instance = new CAPendingList();
-    private static Thread independentThread;
 
     public static CAPendingList getInstance() {
         return instance;
@@ -117,7 +116,7 @@ public class CAPendingList {
             }
 
             PendingApproval approval = createOrRefreshApproval(playerName, deviceEntry);
-            LOGGER.info("Device [{}] for player {} is waiting for approval. Link: {}", approval.requestId, playerName, approval.getApproveUrl());
+            LOGGER.info("Device [{}] for player {} is waiting for approval", approval.requestId, playerName);
             notifyAdmins(approval);
             EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.pending"), 10);
         }
@@ -169,7 +168,7 @@ public class CAPendingList {
                 }
 
                 PendingApproval approval = createOrRefreshApproval(playerName, entry);
-                LOGGER.info("Pending device [{}] for player {} retried login. Link: {}", approval.requestId, playerName, approval.getApproveUrl());
+                LOGGER.info("Pending device [{}] for player {} retried login", approval.requestId, playerName);
                 notifyAdmins(approval);
                 EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.pending"), 0);
             } catch (Exception ignored) {
@@ -255,7 +254,7 @@ public class CAPendingList {
         }
     }
 
-    private void tick() {
+    public void tick() {
         long millTime = System.currentTimeMillis();
 
         synchronized (waiting) {
@@ -308,21 +307,6 @@ public class CAPendingList {
                 }
             }
         }
-    }
-
-    public static Thread getIndependentThread() {
-        if (independentThread == null || !independentThread.isAlive()) {
-            independentThread = new Thread(() -> {
-                while (true) {
-                    try {
-                        instance.tick();
-                    } catch (Exception ignored) {
-                    }
-                }
-            });
-            independentThread.setDaemon(true);
-        }
-        return independentThread;
     }
 
     private void startChallenge(ServerPlayer player) {

@@ -23,7 +23,7 @@ import java.util.List;
 
 public class Compatibility {
     public static void disconnectWithReason(ServerPlayer player, Component reason) {
-        if(!player.hasDisconnected()){
+        if(player != null && !player.hasDisconnected()){
             player.connection.disconnect(reason);
         }
     }
@@ -36,7 +36,7 @@ public class Compatibility {
         }
     }
     public static boolean hasDisconnected(ServerPlayer player){
-        return player.hasDisconnected();
+        return player == null || player.hasDisconnected();
     }
     public static String getClientRootDir(){
         return Minecraft.getInstance().gameDirectory.getAbsolutePath() + File.separator;

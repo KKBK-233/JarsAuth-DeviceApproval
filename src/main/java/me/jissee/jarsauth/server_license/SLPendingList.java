@@ -20,7 +20,6 @@ public class SLPendingList {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final SLPendingList instance = new SLPendingList();
-    private static Thread independentThread;
     public static SLPendingList getInstance(){
         return instance;
     }
@@ -65,15 +64,7 @@ public class SLPendingList {
         }
     }
     
-    public static Thread getIndependentThread(){
-        if (independentThread == null || !independentThread.isAlive()) {
-            independentThread = new Thread(()->{while(true)try{instance.tick();}catch(Exception e){ LOGGER.error("SLPending", e);}});
-            independentThread.setDaemon(true);
-        }
-        return independentThread;
-    }
-
-    private void tick() {
+    public void tick() {
         long now = System.currentTimeMillis();
         int apm = Settings.getServerLicenseSetting().getAuthPerMinute();
         long interval = MILL_PER_MIN / apm;
