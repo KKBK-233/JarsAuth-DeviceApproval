@@ -1,77 +1,190 @@
-# JarsAuth
+# JarsAuth 设备审批版
 
-问题反馈或提交建议请前往issue页面，    
-模组介绍请前往：https://www.mcmod.cn/class/11107.html
+这是基于原版 JarsAuth 改造的 Forge 玩家验证模组，当前主要面向中文社区的小型模组服务器使用。
 
-## 作者承诺
+本分支保留 JarsAuth 的基础验证思路，并在此基础上加入“设备指纹 + 管理员审批”流程：玩家第一台设备可自动通过，第二台及后续设备需要在线管理员确认后才能进入服务器。
 
-作者承诺绝对不会添加任何有害代码。运行时仅仅检测游戏目录下面的文件，绝对不会检测任何你其他的个人隐私文件；数据仅会发送给需要验证的服务器，绝对不会向任何其他网络地址发送数据；所有数据传输前已经被单向哈希加密，任何人无法通过该数据逆向破解出原有信息。因此你的数据安全可以得到高度保证。
+## 致谢
 
-此项目接受广大玩家、腐竹、开发者、技术爱好者的监督，如果有不足之处希望能尽快向作者提出，作者会虚心接受大家的建议。
+本项目基于 Jissee 开发的 JarsAuth 修改而来。感谢原作者开源项目、提供基础验证实现，并允许社区在源码基础上学习和继续开发。
 
-如果此项目侵犯了您的合法权益，请第一时间联系作者，作者将会立刻停止开发并删除一切侵权的部分。
+原项目地址：
 
-## 项目授权
+- GitHub：https://github.com/Jissee/JarsAuth
+- Modrinth：https://modrinth.com/mod/jarsauth
+- MC 百科：https://www.mcmod.cn/class/11107.html
+
+本分支不是原作者官方版本，遇到设备审批相关问题请优先在本仓库反馈。
+
+## 当前改动
+
+- 加入客户端设备指纹识别。
+- 第一台设备默认自动登记。
+- 第二台及后续设备登录时进入待审批状态。
+- 在线 OP / 管理员会收到私聊审批提示。
+- 控制台会输出审批请求，方便无人值守时排查。
+- 支持点击 HTTP 链接审批。
+- 支持游戏内命令查看、批准、拒绝待审批请求。
+- 服务端会按玩家名保存已批准设备列表。
+- 修复 Forge 1.20.1 运行时 Mixin 目标不匹配导致的进入世界崩溃问题。
+
+## 使用场景
+
+适合以下服务器：
+
+- 纯 Forge 模组服。
+- 不方便使用正版登录的社区服。
+- 玩家规模较小，管理员能人工确认新设备。
+- 希望登录尽量无感，但仍希望限制账号被随意复制使用。
+
+不适合以下场景：
+
+- 大型公开服务器。
+- 需要强身份认证、支付风控或商业级安全的服务器。
+- 需要抵御高强度定向攻击的服务器。
+
+设备指纹只能提高滥用成本，不能替代正版登录、白名单、网络隔离和正常的服务器安全维护。
+
+## 安装方式
+
+客户端和服务端都需要放入同一个 JarsAuth jar。
+
+服务端：
+
+```text
+mods/JarsAuth-forge-1.20.1-5.0.jar
+```
+
+客户端：
+
+```text
+mods/JarsAuth-forge-1.20.1-5.0.jar
+```
+
+首次启动服务端后，会在服务端世界根目录生成配置和设备数据。
+
+## 配置文件
+
+服务端世界根目录：
+
+```text
+setting-client-auth.json
+device-files/<玩家名>.json
+```
+
+关键配置项：
+
+```json
+{
+  "enabled": true,
+  "approvalPort": 8787,
+  "approvalBindHost": "0.0.0.0",
+  "approvalPublicBaseUrl": "http://127.0.0.1:8787"
+}
+```
+
+说明：
+
+- `enabled`：是否启用客户端设备验证。默认可能为 `false`，上线前需要改为 `true`。
+- `approvalPort`：审批 HTTP 服务监听端口。
+- `approvalBindHost`：审批 HTTP 服务绑定地址。
+- `approvalPublicBaseUrl`：管理员点击审批链接时访问的地址。
+
+如果服务端在内网，通过 FRP、反代或端口转发暴露审批服务，必须把 `approvalPublicBaseUrl` 改成管理员实际能访问的地址。不要长期暴露到公网，建议只在可信网络或临时审批链路中使用。
+
+## 管理命令
+
+```text
+/jarsauth pending
+/jarsauth approve <requestId>
+/jarsauth reject <requestId>
+```
+
+命令用途：
+
+- `pending`：查看当前等待审批的设备请求。
+- `approve`：批准指定请求。
+- `reject`：拒绝指定请求。
+
+审批请求也会通过私聊发送给在线管理员，管理员可以点击消息中的链接完成审批。
+
+## 设备审批流程
+
+1. 玩家第一次使用某个账号进入服务器。
+2. 服务端没有该玩家的设备记录时，自动登记当前设备。
+3. 玩家更换电脑、重装环境或复制客户端到另一台设备后再次登录。
+4. 服务端识别为新设备，阻止直接进入并生成待审批请求。
+5. 在线管理员收到私聊审批消息，或在控制台看到审批请求。
+6. 管理员点击链接，或使用 `/jarsauth approve <requestId>` 放行。
+7. 服务端把该设备加入玩家设备列表，后续登录不再重复审批。
+
+第三台、第四台设备同样需要重新审批。
+
+## 数据与隐私
+
+本分支只用于服务器设备登记和审批，不应读取玩家游戏目录以外的私人文件。
+
+设备数据会以指纹形式保存，用于判断同一玩家是否正在使用新的客户端环境。设备指纹不是强身份凭证，也不应被视为绝对可靠的安全边界。
+
+建议管理员：
+
+- 不要把设备数据公开发布。
+- 不要把审批 HTTP 服务长期暴露到公网。
+- 定期备份 `device-files`。
+- 玩家更换电脑时，优先通过审批流程新增设备，而不是直接删除全部记录。
+
+## 已知限制
+
+- 尚未完成 Linux Forge dedicated server 的完整长期联调。
+- HTTP 审批链路依赖 `approvalPublicBaseUrl` 配置正确。
+- 设备指纹可能因系统重装、启动器环境变化、Java 环境变化而改变。
+- 如果攻击者拿到完整客户端、账号名和可复现的设备环境，仍可能绕过部分限制。
+- 本分支主要服务小型社区服，不建议直接作为大型公开服的唯一安全措施。
+
+## 开发状态
+
+当前分支：
+
+```text
+device-approval
+```
+
+主要新增模块：
+
+```text
+ApprovalHttpServer
+DeviceIdentity
+DeviceRegistrationRequest
+PlayerDevices
+CAPendingList
+SettingClientAuth
+```
+
+构建产物仍为 Forge 1.20.1 版本 jar。上线前建议重新执行完整构建，并在 Linux 服务端与至少两台客户端上验证：
+
+- 第一台设备自动通过。
+- 第二台设备触发审批。
+- 第三台设备仍需审批。
+- HTTP 审批链接可访问。
+- 游戏内命令审批可用。
+- 重启服务端后设备记录仍然存在。
+
+## 许可与约束
+
+本分支尊重原项目的开源意图和使用约束。
 
 你可以：
-- 在你的整合包或服务器中使用此模组，并在遇到错误时尽快提出；
-- 协助作者进行此项目的开发；
-- 以学习代码的原理或相关技术为目的使用源代码；
-- 尝试破解此程序的，并且开源相关代码；
 
-你不能：
-- 侮辱、诽谤、诋毁、谩骂此项目的相关人员（用户、作者、代码贡献者、破解人员等），包括但不限于对其进行人身攻击、网络暴力等，
-- 将此项目用于上述目的；
-- 尝试破解此程序的，并且不公布相关源代码；
-- 在网易版上使用此项目的任何部分。
+- 在自己的整合包或社区服务器中使用本分支。
+- 基于源码继续修改。
+- 提交问题、修复和改进建议。
+- 为学习目的阅读和分析源码。
 
-## 关于开源和其他
+你不应该：
 
-此前作者认为此模组原理非常简单，如果由于某些原因无法继续开发，其他人也可以逆向分析此项目的源代码并且继续开发。然而作者在开发过程中发现实际复杂程度远远超出预期，因此决定开源项目，寻求大家的帮助。
+- 把本项目用于恶意用途。
+- 删除原作者署名后冒充完全原创。
+- 把设备审批机制包装成绝对安全的身份认证方案。
+- 在未说明来源的情况下分发修改版。
 
-同时，由于“此项目接受广大玩家、腐竹、开发者、技术爱好者的监督”，考虑到用户可能不清楚反编译，因此直接开放源代码也能方便代码的理解。同时还可以作为教程性模组，帮助那些想要学习开发的人。
-
-作者目前只是学生，制作此项目也只是出于学习相关技术的目的，同时也可能由于学业原因不定期断更。
-
-作者允许破解此程序（其实这也是作者自己想做的），因为尝试破解的你或许已经是软件行业的高级工程师，能够以更成熟的眼光看待此项目，从而能发现作者无法发现的问题。作者还是个未入行的无名小卒（因此作者写的都是shi山代码），将其分享给作者则能帮助作者提高水平。反之则毫无意义，因为如果此项目的破解方法广泛传播，作者无法从中学到代码技巧，此项目就失去了意义，作者也就没必要继续开发下去，从而破解本身也就失去了其价值。这里的讨论仅仅针对本项目。
-
-最后，祝你玩的开心，也愿你永远保持对 Minecraft 和 Java 的热爱。也欢迎关注作者开发的其他 MC 模组项目!
-
-# JarsAuth
-
-For bug reports or recommendations, please go to the issue page.    
-For introductions, please go to: https://modrinth.com/mod/jarsauth
-
-## Author's Promise
-
-The author promises that ANY harmful code will never be added to this project. Only the files in game folders can be checked and your other private files will NEVER be checked. All data will be ONLY sent to the servers that need to auth and they will NEVER be sent to other addresses on the network. All data have been encrypted with a hash algorithm and NOBODY can read your original data. Therefore, your data safety is highly guaranteed.
-
-This project is under the supervision of players, server managers, developers, and technology enthusiasts. Please report to the author if there are any defects and the author will accept everyone's recommendations.
-
-If this project infringes any of your legal rights, please contact the author immediately. The author will stop the development and remove any parts of infringement.
-
-## Project Authorization and Agreements
-
-You may:
-- use this mod in your modpacks or servers, and report bugs as soon as possible;
-- contribute to this project;
-- use the source code for learning;
-- try to crack this program and OPEN the source code of your crack methods;
-
-You may NOT:
-- insult, defame anyone related to this project (the users, the author, the contributors, the crack developers, etc.), including, but not limited to any personal attacks or cyber violence on them.
-- use this mod for any improper purposes listed above;
-- try to crack this program and CLOSE the source code of your crack methods;
-- use any part of this project in the NETEASE version.
-
-## About Open Source and Other
-
-The author thought that the principle of this project was easy to understand. If the project is discontinued for some reason, anyone could do some reverse engineering and continue the development. However, the author found it far more difficult than the thought in the development. Consequently, the author decided to make it open-source and seek help from others.
-
-Meanwhile, because "This project is under the supervision of players, server managers, developers, and technology enthusiasts", and some users may not be familiar with the decompilation, the source codes will make it convenient to understand. Moreover, it can also be used as a tutorial mod for those who want to start their development in Minecraft modding.
-
-The author is a student at present and developed this project to learn relevant technology. The author may stop updating this project for academic reasons.
-
-The author allows you to crack this program (actually the author himself wants to do so), because you, the one trying to crack the program, may be an expert in software engineering, and can find the problems that the author cannot figure out. The author is not professional at present and your technical sharing can help to improve the author's ability. Otherwise, it is meaningless. Because if the cracking method is widely spread, and the author cannot learn anything from this project, it will be meaningless for the author to continue this project. Furthermore, the cracking method will also lose its worth. The discussion here is only on this project.
-
-Finally, may you have fun. May you always keep your enthusiasm for Minecraft and Java. It would be highly appreciated if you can also pay attention to other mod projects by the author.
+如果本分支侵犯了你的合法权益，请联系维护者处理。
