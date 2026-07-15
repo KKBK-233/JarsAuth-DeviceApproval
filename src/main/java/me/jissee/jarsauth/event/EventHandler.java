@@ -57,14 +57,10 @@ public class EventHandler {
         MinecraftServer server = event.getServer();
         if(server instanceof DedicatedServer dserver){
             serverSaveDir = server.getWorldPath(LevelResource.ROOT) + File.separator;
+            EventHandler.server = dserver;
             reloadSettings();
             reloadDetails();
-            FCPendingList.getIndependentThread().start();
-            CAPendingList.getIndependentThread().start();
-            SLPendingList.getIndependentThread().start();
-            ApprovalHttpServer.restart();
             Description.extractAll(serverSaveDir);
-            EventHandler.server = dserver;
 
             File jar = JarCopyTool.getJarFile();
 
@@ -110,6 +106,16 @@ public class EventHandler {
     }
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event){
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+
+        // Authentication state touches ServerPlayer and the player list, so it must
+        // advance on the logical server thread instead of independent busy loops.
+        FCPendingList.getInstance().tick();
+        CAPendingList.getInstance().tick();
+        SLPendingList.getInstance().tick();
+
         synchronized (kickList){
             while(!kickList.isEmpty()){
                 ServerPlayer player = kickList.peek();

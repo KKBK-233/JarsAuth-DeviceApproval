@@ -9,6 +9,7 @@ package me.jissee.jarsauth.client_auth;
 import com.mojang.logging.LogUtils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import me.jissee.jarsauth.event.EventHandler;
 import me.jissee.jarsauth.server_settings.SettingClientAuth;
 import me.jissee.jarsauth.server_settings.Settings;
 import org.slf4j.Logger;
@@ -20,6 +21,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class ApprovalHttpServer {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -58,14 +61,37 @@ public class ApprovalHttpServer {
             if (token == null || token.isBlank()) {
                 html = buildHtml("Missing token", false);
             } else {
-                boolean result = approve
-                        ? CAPendingList.getInstance().approvePendingByToken(token)
-                        : CAPendingList.getInstance().rejectPendingByToken(token);
+                boolean result = runActionOnServerThread(token, approve);
                 html = buildHtml(result ? (approve ? "Approved" : "Rejected") : "Request expired or not found", result);
             }
             writeHtml(exchange, html);
         } finally {
             exchange.close();
+        }
+    }
+
+    private static boolean runActionOnServerThread(String token, boolean approve) {
+        var minecraftServer = EventHandler.getServer();
+        if (minecraftServer == null || !minecraftServer.isRunning()) {
+            return false;
+        }
+
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        minecraftServer.execute(() -> {
+            try {
+                result.complete(approve
+                        ? CAPendingList.getInstance().approvePendingByToken(token)
+                        : CAPendingList.getInstance().rejectPendingByToken(token));
+            } catch (Exception e) {
+                result.completeExceptionally(e);
+            }
+        });
+
+        try {
+            return result.get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            LOGGER.warn("Approval action could not be completed on the server thread", e);
+            return false;
         }
     }
 

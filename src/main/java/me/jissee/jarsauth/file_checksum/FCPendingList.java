@@ -37,7 +37,6 @@ public class FCPendingList {
     private static final String CALCULATING = "calculating";
     private static final String FOLDER = "folder";
     private static final FCPendingList instance = new FCPendingList();
-    private static Thread independentThread;
     public static FCPendingList getInstance(){
         return instance;
     }
@@ -310,7 +309,8 @@ public class FCPendingList {
                                 r.expected2 = total2.toString();
                             }
 
-                        });
+                        }, "JarsAuth-FileChecksum");
+                        thread.setDaemon(true);
                         r.expected1 = CALCULATING;
                         r.expected2 = CALCULATING;
                         thread.start();
@@ -326,16 +326,6 @@ public class FCPendingList {
             }
         }
     }
-
-
-    public static Thread getIndependentThread(){
-        if (independentThread == null || !independentThread.isAlive()) {
-            independentThread = new Thread(()->{while(true)try{instance.tick();}catch(Exception e){}});
-            independentThread.setDaemon(true);
-        }
-        return independentThread;
-    }
-
     private static class Record {
         private ServerPlayer player;
         private volatile long time;
