@@ -10,6 +10,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
 import me.jissee.jarsauth.Compatibility;
+import me.jissee.jarsauth.client_auth.ApprovalHttpServer;
 import me.jissee.jarsauth.client_auth.CAPendingList;
 import me.jissee.jarsauth.file_checksum.FCPendingList;
 import me.jissee.jarsauth.server_license.gui.JarCopyTool;
@@ -28,6 +29,7 @@ import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
@@ -60,6 +62,7 @@ public class EventHandler {
             FCPendingList.getIndependentThread().start();
             CAPendingList.getIndependentThread().start();
             SLPendingList.getIndependentThread().start();
+            ApprovalHttpServer.restart();
             Description.extractAll(serverSaveDir);
             EventHandler.server = dserver;
 
@@ -97,6 +100,7 @@ public class EventHandler {
 
             if(Settings.getClientAuthSetting().isEnabled()){
                 CAPendingList.getInstance().playerLogin(svplr);
+                CAPendingList.getInstance().notifyPendingApprovals(svplr);
             }
 
             if(Settings.getServerLicenseSetting().isEnabled()){
@@ -136,6 +140,10 @@ public class EventHandler {
             delayTicks.add(new IntHolder(delayTick));
         }
     }
+    @SubscribeEvent
+    public static void onServerStopped(ServerStoppedEvent event) {
+        ApprovalHttpServer.stop();
+    }
 
     public static String getServerSaveDir() {
         return serverSaveDir;
@@ -144,6 +152,7 @@ public class EventHandler {
     public static void reloadSettings(){
         Settings.loadAllSettings(serverSaveDir);
         Settings.printAll();
+        ApprovalHttpServer.restart();
         LOGGER.info("Settings reloaded");
     }
 

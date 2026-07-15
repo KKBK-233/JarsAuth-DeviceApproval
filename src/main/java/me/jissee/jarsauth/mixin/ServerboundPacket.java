@@ -27,7 +27,7 @@ public class ServerboundPacket {
     private List<String> pages;
     @Shadow @Final
     private int slot;
-    @Inject(method = {"handle(Lnet/minecraft/network/protocol/game/ServerGamePacketListener;)V"}, at = {@At("HEAD")}, cancellable = true)
+    @Inject(method = {"m_5797_(Lnet/minecraft/network/protocol/game/ServerGamePacketListener;)V"}, at = {@At("HEAD")}, cancellable = true, remap = false)
     private void inj1(ServerGamePacketListener p_134008_, CallbackInfo ci){
         ServerGamePacketListenerImpl er = (ServerGamePacketListenerImpl) p_134008_;
         MinecraftServer server = er.player.getServer();

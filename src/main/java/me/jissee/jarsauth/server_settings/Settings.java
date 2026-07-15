@@ -45,6 +45,11 @@ public class Settings {
         LOGGER.info("enabled = {}", settingClientAuth.isEnabled());
         LOGGER.info("interval = {}", settingClientAuth.getInterval());
         LOGGER.info("timeout = {}", settingClientAuth.getTimeout());
+        LOGGER.info("approvalBindHost = {}", settingClientAuth.getApprovalBindHost());
+        LOGGER.info("approvalPort = {}", settingClientAuth.getApprovalPort());
+        LOGGER.info("approvalPublicBaseUrl = {}", settingClientAuth.getApprovalPublicBaseUrl());
+        LOGGER.info("approvalPermissionLevel = {}", settingClientAuth.getApprovalPermissionLevel());
+        LOGGER.info("approvalExpireMinutes = {}", settingClientAuth.getApprovalExpireMinutes());
         LOGGER.info("---SL---");
         LOGGER.info("enabled = {}", settingServerLicense.isEnabled());
         LOGGER.info("autoRemove = {}", settingServerLicense.isAutoRemove());

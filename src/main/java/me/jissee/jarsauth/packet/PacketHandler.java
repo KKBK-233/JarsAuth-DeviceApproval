@@ -15,7 +15,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 import static me.jissee.jarsauth.JarsAuth.MODID;
 
 public class PacketHandler {
-    private static final String PROTOCOL_VERSION = "1";
+    private static final String PROTOCOL_VERSION = "2";
     private static final SimpleChannel INSTANCE = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MODID,"message"),
             () -> PROTOCOL_VERSION,

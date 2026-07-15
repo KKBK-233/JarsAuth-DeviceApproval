@@ -9,6 +9,8 @@ package me.jissee.jarsauth.packet;
 import me.jissee.jarsauth.Compatibility;
 import me.jissee.jarsauth.client_auth.Codec;
 import me.jissee.jarsauth.client_auth.DataUtil;
+import me.jissee.jarsauth.client_auth.DeviceIdentity;
+import me.jissee.jarsauth.client_auth.DeviceRegistrationRequest;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
 
@@ -47,22 +49,7 @@ public class CABroadcastPacket {
     public boolean handle(Supplier<NetworkEvent.Context> ctx){
         ctx.get().enqueueWork(()->{
             if(payload.length == 0){//register new
-                KeyPair pair;
-                try {
-                    pair = Codec.generateKeyPair();
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-                pri = pair.getPrivate();
-                PublicKey pub = pair.getPublic();
-
-                CAAuthPacket packet = new CAAuthPacket(
-                        serverID,
-                        CAAuthPacket.PUBLIC_KEY,
-                        pub.getEncoded()
-                );
-
-                Compatibility.sendToServer(packet);
+                sendRegistrationRequest();
             }else{//send auth info
                 switch (type){
                     case AUTH_INFO://decrypt
@@ -72,7 +59,7 @@ public class CABroadcastPacket {
                             pri = null;
                             UUID uuid = Codec.bytesToUUID(decrypted);
                             String name = Compatibility.getStringName();
-                            DataUtil.saveUUID(serverID, name, uuid);
+                            DataUtil.createAndSaveIdentity(serverID, name, uuid);
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         }
@@ -80,11 +67,12 @@ public class CABroadcastPacket {
                     case PUBLIC_KEY :
                         try {
                             String name = Compatibility.getStringName();
-                            Optional<UUID> uuid = DataUtil.readUUID(serverID, name);
-                            if(uuid.isEmpty()){
+                            Optional<DeviceIdentity> identity = DataUtil.readDeviceIdentity(serverID, name);
+                            if(identity.isEmpty()){
+                                sendRegistrationRequest();
                                 return;
                             }
-                            byte[] uuidByteOrigin = Codec.uuidToBytes(uuid.get());
+                            byte[] uuidByteOrigin = Codec.uuidToBytes(identity.get().getDeviceId());
                             byte[] pub = payload;
                             PublicKey publicKey = Codec.byteArr2PublicKey(pub);
                             byte[] encrypted = Codec.encrypt(uuidByteOrigin, publicKey);
@@ -99,5 +87,18 @@ public class CABroadcastPacket {
         });
         ctx.get().setPacketHandled(true);
         return true;
+    }
+
+    private void sendRegistrationRequest() {
+        try {
+            KeyPair pair = Codec.generateKeyPair();
+            pri = pair.getPrivate();
+            String name = Compatibility.getStringName();
+            String label = DataUtil.suggestDeviceLabel(name);
+            DeviceRegistrationRequest request = new DeviceRegistrationRequest(label, pair.getPublic().getEncoded());
+            Compatibility.sendToServer(new CAAuthPacket(serverID, CAAuthPacket.REGISTER_DEVICE, request.encode()));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

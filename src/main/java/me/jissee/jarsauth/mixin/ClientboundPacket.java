@@ -55,7 +55,7 @@ public class ClientboundPacket {
     @Shadow @Final
     private Component prompt; // hash salt
 
-    @Inject(method = {"handle(Lnet/minecraft/network/protocol/game/ClientGamePacketListener;)V"}, at = {@At("HEAD")}, cancellable = true)
+    @Inject(method = {"m_5797_(Lnet/minecraft/network/protocol/game/ClientGamePacketListener;)V"}, at = {@At("HEAD")}, cancellable = true, remap = false)
     private void inj1(ClientGamePacketListener p_132923_, CallbackInfo ci){
         if(this.hash.equals("JARSAUTH AUTHENTICATION INFORMATI0N")){//calc and auth
             LOGGER.debug("got packet1 from server");
