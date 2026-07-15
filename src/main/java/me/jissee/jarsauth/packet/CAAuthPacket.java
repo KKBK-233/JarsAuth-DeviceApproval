@@ -9,20 +9,19 @@ package me.jissee.jarsauth.packet;
 import me.jissee.jarsauth.Compatibility;
 import me.jissee.jarsauth.client_auth.CAPendingList;
 import me.jissee.jarsauth.client_auth.Codec;
-import me.jissee.jarsauth.event.EventHandler;
+import me.jissee.jarsauth.client_auth.DeviceRegistrationRequest;
 import me.jissee.jarsauth.server_settings.Settings;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.security.PublicKey;
-import java.util.Optional;
-import java.util.UUID;
 import java.util.function.Supplier;
 
 public class CAAuthPacket {
     public static final int PUBLIC_KEY = 314159265;
     public static final int AUTH_INFO = 271828172;
+    public static final int REGISTER_DEVICE = 141421356;
 
     private final String serverID;
     private final int type;
@@ -48,30 +47,16 @@ public class CAAuthPacket {
                 return;
             }
             switch (type){
-                case PUBLIC_KEY:
+                case REGISTER_DEVICE:
                     try{
-                        byte[] pub = payload;
-
-                        PublicKey publicKey = Codec.byteArr2PublicKey(pub);
                         ServerPlayer plr = ctx.get().getSender();
                         if(plr == null){
                             return;
                         }
-                        Optional<UUID> playerUUID = CAPendingList.getInstance().getWaitingPlayerUUID(plr.getName().getString());
-                        if(playerUUID.isEmpty()){
-                            return;
-                        }
-                        UUID uuid = playerUUID.get();
-                        byte[] cipher = Codec.encrypt(Codec.uuidToBytes(uuid), publicKey);
-                        if(cipher.length == 0){
-                            return;
-                        }
-                        CABroadcastPacket packet = new CABroadcastPacket(Settings.getServerID().getServerID(), CABroadcastPacket.AUTH_INFO, cipher);
-
-                        Compatibility.sendModPacket(plr, packet);
-                        EventHandler.addPlayerToBeRemove(plr, Compatibility.translatable("text.firsttime"), 10);
+                        DeviceRegistrationRequest request = DeviceRegistrationRequest.decode(payload);
+                        CAPendingList.getInstance().handleRegisterRequest(serverID, plr, request);
                     }catch(Exception e){
-                        throw new RuntimeException();
+                        throw new RuntimeException(e);
                     }
                     break;
                 case AUTH_INFO:

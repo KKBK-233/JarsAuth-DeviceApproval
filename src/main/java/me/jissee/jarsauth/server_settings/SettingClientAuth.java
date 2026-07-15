@@ -24,11 +24,30 @@ public class SettingClientAuth {
     private final boolean enabled;
     private final int interval;
     private final int timeout;
+    private final int approvalPort;
+    private final String approvalBindHost;
+    private final String approvalPublicBaseUrl;
+    private final int approvalPermissionLevel;
+    private final int approvalExpireMinutes;
 
-    public SettingClientAuth(boolean enabled, int interval, int timeout){
+    public SettingClientAuth(
+            boolean enabled,
+            int interval,
+            int timeout,
+            int approvalPort,
+            String approvalBindHost,
+            String approvalPublicBaseUrl,
+            int approvalPermissionLevel,
+            int approvalExpireMinutes
+    ){
         this.enabled = enabled;
         this.interval = interval;
         this.timeout = timeout;
+        this.approvalPort = approvalPort;
+        this.approvalBindHost = approvalBindHost;
+        this.approvalPublicBaseUrl = approvalPublicBaseUrl;
+        this.approvalPermissionLevel = approvalPermissionLevel;
+        this.approvalExpireMinutes = approvalExpireMinutes;
     }
     public static SettingClientAuth load(String serverSaveDir){
         File file = new File(serverSaveDir + FILE_NAME);
@@ -55,7 +74,8 @@ public class SettingClientAuth {
                 sb.append((char)ch);
             }
             String str = sb.toString();
-            return gson.fromJson(str, SettingClientAuth.class);
+            SettingClientAuth loaded = gson.fromJson(str, SettingClientAuth.class);
+            return loaded == null ? createDefault() : loaded.sanitize();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -64,8 +84,36 @@ public class SettingClientAuth {
         boolean enabled = false;
         int interval = 10;
         int timeout = 5;
+        int approvalPort = 8787;
+        String approvalBindHost = "0.0.0.0";
+        String approvalPublicBaseUrl = "http://127.0.0.1:8787";
+        int approvalPermissionLevel = 4;
+        int approvalExpireMinutes = 30;
 
-        return new SettingClientAuth(enabled, interval, timeout);
+        return new SettingClientAuth(
+                enabled,
+                interval,
+                timeout,
+                approvalPort,
+                approvalBindHost,
+                approvalPublicBaseUrl,
+                approvalPermissionLevel,
+                approvalExpireMinutes
+        );
+    }
+
+    private SettingClientAuth sanitize() {
+        SettingClientAuth defaults = createDefault();
+        return new SettingClientAuth(
+                enabled,
+                interval > 0 ? interval : defaults.interval,
+                timeout > 0 ? timeout : defaults.timeout,
+                approvalPort > 0 ? approvalPort : defaults.approvalPort,
+                approvalBindHost == null || approvalBindHost.isBlank() ? defaults.approvalBindHost : approvalBindHost,
+                approvalPublicBaseUrl == null || approvalPublicBaseUrl.isBlank() ? defaults.approvalPublicBaseUrl : approvalPublicBaseUrl,
+                approvalPermissionLevel >= 0 ? approvalPermissionLevel : defaults.approvalPermissionLevel,
+                approvalExpireMinutes > 0 ? approvalExpireMinutes : defaults.approvalExpireMinutes
+        );
     }
 
     public boolean isEnabled(){
@@ -76,5 +124,20 @@ public class SettingClientAuth {
     }
     public int getTimeout(){
         return timeout;
+    }
+    public int getApprovalPort() {
+        return approvalPort;
+    }
+    public String getApprovalBindHost() {
+        return approvalBindHost;
+    }
+    public String getApprovalPublicBaseUrl() {
+        return approvalPublicBaseUrl;
+    }
+    public int getApprovalPermissionLevel() {
+        return approvalPermissionLevel;
+    }
+    public int getApprovalExpireMinutes() {
+        return approvalExpireMinutes;
     }
 }

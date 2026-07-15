@@ -9,13 +9,17 @@ package me.jissee.jarsauth;
 import com.mojang.brigadier.context.CommandContext;
 import me.jissee.jarsauth.event.EventHandler;
 import me.jissee.jarsauth.packet.PacketHandler;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Compatibility {
     public static void disconnectWithReason(ServerPlayer player, Component reason) {
@@ -54,5 +58,17 @@ public class Compatibility {
     }
     public static void consoleMessage(CommandContext<CommandSourceStack> ctx, Component msg){
         ctx.getSource().sendSystemMessage(msg);
+    }
+    public static void sendSystemMessage(ServerPlayer player, Component msg) {
+        player.sendSystemMessage(msg);
+    }
+    public static List<ServerPlayer> getOnlinePlayers() {
+        if (EventHandler.getServer() == null) {
+            return List.of();
+        }
+        return new ArrayList<>(EventHandler.getServer().getPlayerList().getPlayers());
+    }
+    public static MutableComponent greenLiteral(String text) {
+        return Component.literal(text).withStyle(ChatFormatting.GREEN);
     }
 }

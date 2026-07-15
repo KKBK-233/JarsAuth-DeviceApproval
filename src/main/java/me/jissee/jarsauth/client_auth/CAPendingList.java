@@ -11,349 +11,489 @@ import me.jissee.jarsauth.Compatibility;
 import me.jissee.jarsauth.event.EventHandler;
 import me.jissee.jarsauth.packet.CABroadcastPacket;
 import me.jissee.jarsauth.server_license.SLPendingList;
+import me.jissee.jarsauth.server_settings.SettingClientAuth;
 import me.jissee.jarsauth.server_settings.Settings;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 
-import java.io.*;
 import java.security.KeyPair;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
-import java.util.*;
-import java.util.function.Function;
+import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 public class CAPendingList {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final CAPendingList instance = new CAPendingList();
     private static Thread independentThread;
-    public static CAPendingList getInstance(){
+
+    public static CAPendingList getInstance() {
         return instance;
     }
 
-    private final HashMap<String, Record> waiting = new HashMap<>();
-    private final ArrayList<Record> loggedIn = new ArrayList<>();
+    private final HashMap<String, AuthSession> waiting = new HashMap<>();
+    private final HashMap<String, Long> loggedIn = new HashMap<>();
     private final ArrayList<ServerPlayer> newPlayers = new ArrayList<>();
+    private final HashMap<String, PendingApproval> approvalsByToken = new HashMap<>();
+    private final HashMap<String, PendingApproval> approvalsByRequestId = new HashMap<>();
 
-    public void playerLogin(ServerPlayer player){
-        String serverID = Settings.getServerID().getServerID();
-        String name = player.getName().getString();
-        Optional<Record> record = Record.searchFor(name);
+    public void playerLogin(ServerPlayer player) {
+        String playerName = player.getName().getString();
+        Optional<PlayerDevices> devices = PlayerDevices.load(playerName);
 
-        if(record.isEmpty()){
-            synchronized (newPlayers){
+        if (devices.isEmpty()) {
+            synchronized (newPlayers) {
                 newPlayers.add(player);
             }
-            if(!Settings.getFileChecksumSetting().isEnabled()){
+            if (!Settings.getFileChecksumSetting().isEnabled()) {
                 allowNew(player);
             }
+            return;
+        }
 
-        }else{
-            KeyPair pair;
+        startChallenge(player);
+    }
+
+    public void allowNew(ServerPlayer player) {
+        boolean isNew;
+        synchronized (newPlayers) {
+            isNew = newPlayers.remove(player);
+        }
+        if (!isNew || Compatibility.hasDisconnected(player)) {
+            return;
+        }
+
+        AuthSession session = AuthSession.expectRegistration();
+        session.setLoginTime(System.currentTimeMillis());
+        synchronized (waiting) {
+            waiting.put(player.getName().getString(), session);
+        }
+        Compatibility.sendModPacket(player, new CABroadcastPacket(Settings.getServerID().getServerID(), CABroadcastPacket.AUTH_INFO, new byte[]{}));
+    }
+
+    public void handleRegisterRequest(String serverID, ServerPlayer player, DeviceRegistrationRequest request) {
+        synchronized (waiting) {
+            if (!Settings.getServerID().getServerID().equals(serverID)) {
+                return;
+            }
+            String playerName = player.getName().getString();
+            AuthSession session = waiting.get(playerName);
+            if (session == null) {
+                return;
+            }
+
+            PlayerDevices devices = PlayerDevices.load(playerName).orElse(PlayerDevices.create(playerName));
+            UUID rawDeviceId = UUID.randomUUID();
+            boolean approved = devices.countApprovedDevices() == 0;
+            PlayerDevices.DeviceEntry deviceEntry = devices.registerNewDevice(rawDeviceId, sanitizeLabel(request.getDeviceLabel(), playerName), approved);
+            devices.save();
+
             try {
-                pair = Codec.generateKeyPair();
+                PublicKey publicKey = Codec.byteArr2PublicKey(request.getPublicKey());
+                byte[] cipher = Codec.encrypt(Codec.uuidToBytes(rawDeviceId), publicKey);
+                Compatibility.sendModPacket(player, new CABroadcastPacket(Settings.getServerID().getServerID(), CABroadcastPacket.AUTH_INFO, cipher));
             } catch (Exception e) {
                 throw new RuntimeException(e);
-            }
-            Record playerRecord = record.get();
-            playerRecord.setPrivateKey(pair.getPrivate());
-            synchronized (waiting){
-                waiting.put(name, playerRecord);
+            } finally {
+                waiting.remove(playerName);
             }
 
-            CABroadcastPacket packet = new CABroadcastPacket(serverID, CABroadcastPacket.PUBLIC_KEY, pair.getPublic().getEncoded());
-            Compatibility.sendModPacket(player, packet);
+            if (approved) {
+                LOGGER.info("Auto approved first device [{}] for player {}", deviceEntry.getRequestId(), playerName);
+                EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.firsttime"), 10);
+                return;
+            }
 
+            PendingApproval approval = createOrRefreshApproval(playerName, deviceEntry);
+            LOGGER.info("Device [{}] for player {} is waiting for approval. Link: {}", approval.requestId, playerName, approval.getApproveUrl());
+            notifyAdmins(approval);
+            EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.pending"), 10);
         }
     }
 
-    public void allowNew(ServerPlayer player){
-        boolean isNew;
-        synchronized (newPlayers){
-            isNew = newPlayers.contains(player);
-            if(isNew){
-                newPlayers.remove(player);
+    public void addAuthInfo(String serverID, ServerPlayer player, byte[] payload) {
+        synchronized (waiting) {
+            if (!Settings.getServerID().getServerID().equals(serverID)) {
+                return;
+            }
+
+            String playerName = player.getName().getString();
+            AuthSession session = waiting.get(playerName);
+            if (session == null || session.getPrivateKey() == null) {
+                return;
+            }
+
+            try {
+                byte[] uuidDec = Codec.decrypt(payload, session.getPrivateKey());
+                UUID rawDeviceId = Codec.bytesToUUID(uuidDec);
+                UUID hashedDeviceId = PlayerDevices.hashDeviceId(rawDeviceId);
+
+                PlayerDevices devices = PlayerDevices.load(playerName).orElse(null);
+                if (devices == null) {
+                    EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.fail"), 0);
+                    waiting.remove(playerName);
+                    return;
+                }
+
+                Optional<PlayerDevices.DeviceEntry> deviceEntry = devices.findByHashedDeviceId(hashedDeviceId);
+                if (deviceEntry.isEmpty()) {
+                    EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.fail"), 0);
+                    waiting.remove(playerName);
+                    return;
+                }
+
+                PlayerDevices.DeviceEntry entry = deviceEntry.get();
+                entry.touch();
+                devices.save();
+                waiting.remove(playerName);
+
+                if (entry.isApproved()) {
+                    synchronized (loggedIn) {
+                        loggedIn.put(playerName, System.currentTimeMillis());
+                    }
+                    LOGGER.debug("Player {} passed CA authentication", playerName);
+                    SLPendingList.getInstance().allowNew(player);
+                    return;
+                }
+
+                PendingApproval approval = createOrRefreshApproval(playerName, entry);
+                LOGGER.info("Pending device [{}] for player {} retried login. Link: {}", approval.requestId, playerName, approval.getApproveUrl());
+                notifyAdmins(approval);
+                EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.pending"), 0);
+            } catch (Exception ignored) {
             }
         }
+    }
 
-        if(isNew && !Compatibility.hasDisconnected(player)){
-            Record record = Record.createAndSaveFor(player.getName().getString());
-            String serverID = Settings.getServerID().getServerID();
-            String name = player.getName().getString();
-            CABroadcastPacket packet = new CABroadcastPacket(serverID, CABroadcastPacket.AUTH_INFO, new byte[]{});
-            synchronized (waiting){
-                waiting.put(name, record);
+    public boolean approvePendingByToken(String token) {
+        synchronized (approvalsByToken) {
+            PendingApproval approval = approvalsByToken.get(token);
+            return approval != null && approvePendingByRequestId(approval.requestId);
+        }
+    }
+
+    public boolean rejectPendingByToken(String token) {
+        synchronized (approvalsByToken) {
+            PendingApproval approval = approvalsByToken.get(token);
+            return approval != null && rejectPendingByRequestId(approval.requestId);
+        }
+    }
+
+    public boolean approvePendingByRequestId(String requestId) {
+        synchronized (approvalsByToken) {
+            PendingApproval approval = approvalsByRequestId.get(requestId);
+            if (approval == null || approval.isExpired()) {
+                removeApprovalInternal(approval);
+                return false;
             }
-            Compatibility.sendModPacket(player, packet);
+
+            PlayerDevices devices = PlayerDevices.load(approval.playerName).orElse(null);
+            if (devices == null) {
+                removeApprovalInternal(approval);
+                return false;
+            }
+
+            Optional<PlayerDevices.DeviceEntry> deviceEntry = devices.findByRequestId(requestId);
+            if (deviceEntry.isEmpty()) {
+                removeApprovalInternal(approval);
+                return false;
+            }
+
+            deviceEntry.get().approve();
+            devices.save();
+            removeApprovalInternal(approval);
+            broadcastAdminResult(Component.translatable("text.caauth.approved", approval.playerName, deviceEntry.get().getLabel(), requestId));
+            return true;
+        }
+    }
+
+    public boolean rejectPendingByRequestId(String requestId) {
+        synchronized (approvalsByToken) {
+            PendingApproval approval = approvalsByRequestId.get(requestId);
+            if (approval == null || approval.isExpired()) {
+                removeApprovalInternal(approval);
+                return false;
+            }
+            removeApprovalInternal(approval);
+            broadcastAdminResult(Component.translatable("text.caauth.rejected", approval.playerName, approval.deviceLabel, requestId));
+            return true;
+        }
+    }
+
+    public List<PendingApproval> listPendingApprovals() {
+        synchronized (approvalsByToken) {
+            ArrayList<PendingApproval> result = new ArrayList<>();
+            for (PendingApproval approval : approvalsByToken.values()) {
+                if (!approval.isExpired()) {
+                    result.add(approval);
+                }
+            }
+            result.sort((left, right) -> Long.compare(left.createdAt, right.createdAt));
+            return result;
+        }
+    }
+
+    public void notifyPendingApprovals(ServerPlayer admin) {
+        int permissionLevel = Settings.getClientAuthSetting().getApprovalPermissionLevel();
+        if (!admin.hasPermissions(permissionLevel)) {
+            return;
+        }
+        for (PendingApproval approval : listPendingApprovals()) {
+            Compatibility.sendSystemMessage(admin, buildApprovalMessage(approval));
         }
     }
 
     private void tick() {
         long millTime = System.currentTimeMillis();
-        //remove disconnected player
-        synchronized (waiting){
-            Set<String> set = waiting.keySet();
-            Object[] keys =  set.toArray();
-            for(Object obj : keys){
-                String name = (String) obj;
-                ServerPlayer player = Compatibility.getPlayerByName(name);
-                if(Compatibility.hasDisconnected(player)){
-                    waiting.remove(obj);
+
+        synchronized (waiting) {
+            Iterator<Map.Entry<String, AuthSession>> iterator = waiting.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, AuthSession> entry = iterator.next();
+                ServerPlayer player = Compatibility.getPlayerByName(entry.getKey());
+                if (Compatibility.hasDisconnected(player)) {
+                    iterator.remove();
+                    continue;
                 }
-            }
-        }
-        synchronized (loggedIn){
-            int count = loggedIn.size();
-            for(int i = 0; i < count; i++){
-                String name = loggedIn.get(i).getPlayerName();
-                ServerPlayer player = Compatibility.getPlayerByName(name);
-                if(Compatibility.hasDisconnected(player)){
-                    loggedIn.remove(i);
-                    i--;
-                }
-            }
-        }
-        synchronized (newPlayers){
-            int count = newPlayers.size();
-            for(int i = 0; i < count; i++){
-                ServerPlayer player = newPlayers.get(i);
-                if(Compatibility.hasDisconnected(player)){
-                    newPlayers.remove(i);
-                    i--;
-                }
-            }
-        }
-        //check timeout
-        synchronized (waiting){
-            Set<String> set = waiting.keySet();
-            Object[] keys =  set.toArray();
-            for(Object obj : keys){
-                String name = (String) obj;
-                Record rec = waiting.get(name);
+
                 long timeout = Settings.getClientAuthSetting().getTimeout();
-
-                if(millTime - rec.getLoginTime() > timeout * 1000 && rec.getLoginTime() != 0){
-                    ServerPlayer player = Compatibility.getPlayerByName(name);
+                if (millTime - entry.getValue().getLoginTime() > timeout * 1000L) {
                     EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.timeout"), 0);
-                    waiting.remove(name);
+                    iterator.remove();
                 }
             }
         }
-        //handle next authentication
-        synchronized (waiting){
-            synchronized (loggedIn){
-                int count = loggedIn.size();
-                for(int i = 0; i < count; i++){
-                    millTime = System.currentTimeMillis();
-                    Record rec = loggedIn.get(i);
-                    String playerName = rec.getPlayerName();
-                    long loginTime = rec.getLoginTime();
-                    long interval = Settings.getClientAuthSetting().getInterval();
-                    if(millTime - loginTime > interval * 1000 && !waiting.containsKey(playerName)){
-                        loggedIn.remove(i);
-                        i--;
 
-                        Optional<Record> search = Record.searchFor(playerName);
-                        if(search.isEmpty()){
-                            continue;
-                        }
+        synchronized (loggedIn) {
+            Iterator<Map.Entry<String, Long>> iterator = loggedIn.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, Long> entry = iterator.next();
+                ServerPlayer player = Compatibility.getPlayerByName(entry.getKey());
+                if (Compatibility.hasDisconnected(player)) {
+                    iterator.remove();
+                    continue;
+                }
 
-                        rec = search.get();
+                long interval = Settings.getClientAuthSetting().getInterval();
+                if (interval > 0 && millTime - entry.getValue() > interval * 1000L) {
+                    iterator.remove();
+                    startChallenge(player);
+                }
+            }
+        }
 
-                        KeyPair pair;
-                        try {
-                            pair = Codec.generateKeyPair();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                        rec.setPrivateKey(pair.getPrivate());
+        synchronized (newPlayers) {
+            newPlayers.removeIf(Compatibility::hasDisconnected);
+        }
 
-                        waiting.put(rec.playerName, rec);
-
-                        String serverID = Settings.getServerID().getServerID();
-                        CABroadcastPacket packet = new CABroadcastPacket(serverID, CABroadcastPacket.PUBLIC_KEY, pair.getPublic().getEncoded());
-                        ServerPlayer svplr = Compatibility.getPlayerByName(rec.playerName);
-
-                        Compatibility.sendModPacket(svplr, packet);
-                    }
+        synchronized (approvalsByToken) {
+            Iterator<PendingApproval> iterator = approvalsByToken.values().iterator();
+            while (iterator.hasNext()) {
+                PendingApproval approval = iterator.next();
+                if (approval.isExpired()) {
+                    approvalsByRequestId.remove(approval.requestId);
+                    iterator.remove();
                 }
             }
         }
     }
 
-    public static Thread getIndependentThread(){
+    public static Thread getIndependentThread() {
         if (independentThread == null || !independentThread.isAlive()) {
-            independentThread = new Thread(()->{while(true)try{instance.tick();}catch(Exception e){}});
+            independentThread = new Thread(() -> {
+                while (true) {
+                    try {
+                        instance.tick();
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
             independentThread.setDaemon(true);
         }
         return independentThread;
     }
 
-    public Optional<UUID> getWaitingPlayerUUID(String name) {
-        Record waitingPlayer = waiting.get(name);
-        if(waitingPlayer != null){
-            return Optional.of(waitingPlayer.getUuid());
-        }else{
-            return Optional.empty();
+    private void startChallenge(ServerPlayer player) {
+        try {
+            KeyPair pair = Codec.generateKeyPair();
+            AuthSession session = AuthSession.expectExisting(pair.getPrivate());
+            session.setLoginTime(System.currentTimeMillis());
+            synchronized (waiting) {
+                waiting.put(player.getName().getString(), session);
+            }
+            Compatibility.sendModPacket(player, new CABroadcastPacket(Settings.getServerID().getServerID(), CABroadcastPacket.PUBLIC_KEY, pair.getPublic().getEncoded()));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
-    public void addAuthInfo(String serverID, ServerPlayer player, byte[] payload) {
-        synchronized (waiting){
-            try {
-                String playerName = player.getName().getString();
-                Record rec = waiting.get(playerName);
-                PrivateKey pri = rec.getPrivateKey();
-                byte[] uuidDec = Codec.decrypt(payload, pri);
-                rec.setPrivateKey(null);
-                Function<byte[], byte[]> getBMD5 = data -> {
-                    try {
-                        MessageDigest md = MessageDigest.getInstance("MD5");
-                        md.update(data);
-                        return md.digest();
-                    } catch (NoSuchAlgorithmException e) {
-                        throw new RuntimeException("MD5 algorithm not available", e);
-                    }
-                };
-                byte[] uuidBytesHashed = getBMD5.apply(uuidDec);
-                UUID uuidHashed = Codec.bytesToUUID(uuidBytesHashed);
+    private PendingApproval createOrRefreshApproval(String playerName, PlayerDevices.DeviceEntry entry) {
+        SettingClientAuth setting = Settings.getClientAuthSetting();
+        PendingApproval old = approvalsByRequestId.remove(entry.getRequestId());
+        if (old != null) {
+            approvalsByToken.remove(old.token);
+        }
+        PendingApproval approval = new PendingApproval(
+                entry.getRequestId(),
+                UUID.randomUUID().toString().replace("-", ""),
+                playerName,
+                entry.getLabel(),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + setting.getApprovalExpireMinutes() * 60_000L
+        );
+        approvalsByToken.put(approval.token, approval);
+        approvalsByRequestId.put(approval.requestId, approval);
+        return approval;
+    }
 
-                if (uuidHashed.equals(rec.getUuid()) && serverID.equals(Settings.getServerID().getServerID())) {
-                    rec.setLoginTime(System.currentTimeMillis());
-                    synchronized (loggedIn){
-                        loggedIn.add(rec);
-                    }
-                } else {
-                    EventHandler.addPlayerToBeRemove(player, Compatibility.translatable("text.caauth.fail"), 0);
-                }
-                waiting.remove(playerName);
-                LOGGER.debug("Player {} passed CA authentication", playerName);
-                SLPendingList.getInstance().allowNew(player);
-            } catch (Exception e) {
+    private void notifyAdmins(PendingApproval approval) {
+        boolean sent = false;
+        int permissionLevel = Settings.getClientAuthSetting().getApprovalPermissionLevel();
+        for (ServerPlayer onlinePlayer : Compatibility.getOnlinePlayers()) {
+            if (onlinePlayer.hasPermissions(permissionLevel)) {
+                Compatibility.sendSystemMessage(onlinePlayer, buildApprovalMessage(approval));
+                sent = true;
             }
+        }
+        if (!sent) {
+            LOGGER.info("No online admin available for pending device [{}] of player {}", approval.requestId, approval.playerName);
         }
     }
 
+    private MutableComponent buildApprovalMessage(PendingApproval approval) {
+        MutableComponent head = Component.literal("[JarsAuth] ")
+                .withStyle(ChatFormatting.GOLD)
+                .append(Component.translatable("text.caauth.pending.detail", approval.playerName, approval.deviceLabel, approval.requestId).withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal(" "));
 
-    private static class Record implements Serializable {
-        private static final String UUID_FOLDER = "uuid-files";
-        private String playerName;
-        private UUID uuid;
-        private transient PrivateKey privateKey;
-        private transient boolean isNew;
-        private transient long loginTime = 0;
+        MutableComponent approve = Component.translatable("text.caauth.approve.link")
+                        .withStyle(style -> style
+                        .withColor(ChatFormatting.GREEN)
+                        .withUnderlined(true)
+                        .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(approval.getApproveUrl())))
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, approval.getApproveUrl())));
 
-        public Record(){}
+        MutableComponent reject = Component.translatable("text.caauth.reject.link")
+                        .withStyle(style -> style
+                        .withColor(ChatFormatting.RED)
+                        .withUnderlined(true)
+                        .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(approval.getRejectUrl())))
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, approval.getRejectUrl())));
 
-        public static Optional<Record> searchFor(String playerName){
-            Optional<Record> search = searchDiskFor(playerName);
-            if(search.isPresent()){
-                Record record = search.get();
-                record.setNew(false);
-                record.setLoginTime(System.currentTimeMillis());
-                return Optional.of(record);
-            }else{
-                return Optional.empty();
-            }
+        return head.append(approve).append(Component.literal(" ")).append(reject);
+    }
 
-        }
-
-        public static Record createAndSaveFor(String playerName){
-            Record record1 = new Record();
-            record1.setPlayerName(playerName);
-            UUID uuidOrigin = UUID.randomUUID();
-            byte[] uuidBytesOrigin = Codec.uuidToBytes(uuidOrigin);
-            Function<byte[], byte[]> getBMD5 = data -> {
-                try {
-                    MessageDigest md = MessageDigest.getInstance("MD5");
-                    md.update(data);
-                    return md.digest();
-                } catch (NoSuchAlgorithmException e) {
-                    throw new RuntimeException("MD5 algorithm not available", e);
-                }
-            };
-            byte[] uuidBytesHashed = getBMD5.apply(uuidBytesOrigin);
-            UUID uuidHashed = Codec.bytesToUUID(uuidBytesHashed);
-
-            record1.setUuid(uuidHashed);
-            record1.setNew(true);
-            record1.writeToDisk();
-
-            record1.setUuid(uuidOrigin);
-            return record1;
-        }
-
-        public static Optional<CAPendingList.Record> searchDiskFor(String playerName){
-            String serverDir = EventHandler.getServerSaveDir();
-            File folder = new File(serverDir + UUID_FOLDER);
-            createFolder(folder);
-
-            File file = new File(serverDir + UUID_FOLDER + File.separator + playerName + ".javauuid");
-            if(file.exists()){
-                try(FileInputStream fis = new FileInputStream(file)){
-
-                    try(ObjectInputStream ois = new ObjectInputStream(fis)){
-                        Object obj = ois.readObject();
-                        return Optional.of((CAPendingList.Record) obj);
-                    } catch (ClassNotFoundException e) {
-                        throw new RuntimeException(e);
-                    }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            }else{
-                return Optional.empty();
+    private void broadcastAdminResult(Component msg) {
+        int permissionLevel = Settings.getClientAuthSetting().getApprovalPermissionLevel();
+        for (ServerPlayer onlinePlayer : Compatibility.getOnlinePlayers()) {
+            if (onlinePlayer.hasPermissions(permissionLevel)) {
+                Compatibility.sendSystemMessage(onlinePlayer, msg);
             }
         }
+        LOGGER.info(msg.getString());
+    }
 
-        public void writeToDisk() {
-            String serverDir = EventHandler.getServerSaveDir();
-            //String playerName = record.getPlayerName();
-            File folder = new File(serverDir + UUID_FOLDER);
-            createFolder(folder);
+    private void removeApprovalInternal(PendingApproval approval) {
+        if (approval == null) {
+            return;
+        }
+        approvalsByToken.remove(approval.token);
+        approvalsByRequestId.remove(approval.requestId);
+    }
 
-            File file = new File(serverDir + UUID_FOLDER + File.separator + getPlayerName() + ".javauuid");
-            try {
-                file.createNewFile();
-                try(FileOutputStream fos = new FileOutputStream(file)){
-                    try(ObjectOutputStream oos = new ObjectOutputStream(fos)){
-                        oos.writeObject(this);
-                    }
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+    private String sanitizeLabel(String deviceLabel, String playerName) {
+        if (deviceLabel == null || deviceLabel.isBlank()) {
+            return DeviceIdentity.defaultLabel(playerName);
+        }
+        String normalized = deviceLabel.replaceAll("[\\r\\n\\t]", " ").trim();
+        if (normalized.length() > 48) {
+            return normalized.substring(0, 48);
+        }
+        return normalized;
+    }
+
+    public static class PendingApproval {
+        private final String requestId;
+        private final String token;
+        private final String playerName;
+        private final String deviceLabel;
+        private final long createdAt;
+        private final long expireAt;
+
+        private PendingApproval(String requestId, String token, String playerName, String deviceLabel, long createdAt, long expireAt) {
+            this.requestId = requestId;
+            this.token = token;
+            this.playerName = playerName;
+            this.deviceLabel = deviceLabel;
+            this.createdAt = createdAt;
+            this.expireAt = expireAt;
+        }
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() > expireAt;
+        }
+
+        public String getApproveUrl() {
+            return buildUrl("/approve");
+        }
+
+        public String getRejectUrl() {
+            return buildUrl("/reject");
+        }
+
+        public String getRequestId() {
+            return requestId;
+        }
+
+        public String getPlayerName() {
+            return playerName;
+        }
+
+        public String getDeviceLabel() {
+            return deviceLabel;
+        }
+
+        private String buildUrl(String path) {
+            String base = Settings.getClientAuthSetting().getApprovalPublicBaseUrl();
+            if (base.endsWith("/")) {
+                base = base.substring(0, base.length() - 1);
             }
-
+            return base + path + "?token=" + token;
         }
-        private static void createFolder(File folder){
-            if(!folder.exists()){
-                folder.mkdir();
-            }
+    }
+
+    private static class AuthSession {
+        private final SessionType type;
+        private final PrivateKey privateKey;
+        private long loginTime;
+
+        private AuthSession(SessionType type, PrivateKey privateKey) {
+            this.type = type;
+            this.privateKey = privateKey;
         }
 
-        public UUID getUuid() {
-            return uuid;
+        public static AuthSession expectRegistration() {
+            return new AuthSession(SessionType.REGISTRATION, null);
         }
 
-        public void setUuid(UUID uuid) {
-            this.uuid = uuid;
+        public static AuthSession expectExisting(PrivateKey privateKey) {
+            return new AuthSession(SessionType.EXISTING_AUTH, privateKey);
         }
 
         public PrivateKey getPrivateKey() {
             return privateKey;
-        }
-
-        public void setPrivateKey(PrivateKey privateKey) {
-            this.privateKey = privateKey;
-        }
-
-        public boolean isNew() {
-            return isNew;
-        }
-
-        public void setNew(boolean aNew) {
-            isNew = aNew;
         }
 
         public long getLoginTime() {
@@ -363,14 +503,10 @@ public class CAPendingList {
         public void setLoginTime(long loginTime) {
             this.loginTime = loginTime;
         }
+    }
 
-        public String getPlayerName() {
-            return playerName;
-        }
-
-        public void setPlayerName(String playerName) {
-            this.playerName = playerName;
-        }
-
+    private enum SessionType {
+        REGISTRATION,
+        EXISTING_AUTH
     }
 }

@@ -62,6 +62,16 @@ public class Codec {
         return new UUID(mostSigBits, leastSigBits);
     }
 
+    public static byte[] md5(byte[] data) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(data);
+            return md.digest();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("MD5 algorithm not available", e);
+        }
+    }
+
 
     /*
     public static byte[] encrypt(String data, PublicKey publicKey) throws Exception {
