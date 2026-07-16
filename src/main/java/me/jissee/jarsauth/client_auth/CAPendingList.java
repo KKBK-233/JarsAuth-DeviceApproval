@@ -177,58 +177,87 @@ public class CAPendingList {
     }
 
     public boolean approvePendingByToken(String token) {
+        PendingApproval approval;
         synchronized (approvalsByToken) {
-            PendingApproval approval = approvalsByToken.get(token);
-            return approval != null && approvePendingByRequestId(approval.requestId);
+            approval = approvalsByToken.get(token);
         }
+        return approval != null && approvePendingByRequestId(approval.requestId);
     }
 
     public boolean rejectPendingByToken(String token) {
+        PendingApproval approval;
         synchronized (approvalsByToken) {
-            PendingApproval approval = approvalsByToken.get(token);
-            return approval != null && rejectPendingByRequestId(approval.requestId);
+            approval = approvalsByToken.get(token);
         }
+        return approval != null && rejectPendingByRequestId(approval.requestId);
     }
 
     public boolean approvePendingByRequestId(String requestId) {
+        PendingApproval approval;
         synchronized (approvalsByToken) {
-            PendingApproval approval = approvalsByRequestId.get(requestId);
+            approval = approvalsByRequestId.get(requestId);
             if (approval == null || approval.isExpired()) {
                 removeApprovalInternal(approval);
                 return false;
             }
+        }
 
+        String label;
+        synchronized (PlayerDevices.accountLock(approval.playerName)) {
             PlayerDevices devices = PlayerDevices.load(approval.playerName).orElse(null);
             if (devices == null) {
-                removeApprovalInternal(approval);
+                synchronized (approvalsByToken) {
+                    removeApprovalInternal(approval);
+                }
                 return false;
             }
 
             Optional<PlayerDevices.DeviceEntry> deviceEntry = devices.findByRequestId(requestId);
             if (deviceEntry.isEmpty()) {
-                removeApprovalInternal(approval);
+                synchronized (approvalsByToken) {
+                    removeApprovalInternal(approval);
+                }
                 return false;
             }
 
-            deviceEntry.get().approve();
+            PlayerDevices.DeviceEntry entry = deviceEntry.get();
+            if (!devices.isV2() && entry.getCandidateRecoveryPublicKey() != null) {
+                devices.enableV2(entry.getCandidateRecoveryPublicKey());
+            }
+            entry.approve();
+            label = entry.getLabel();
             devices.save();
-            removeApprovalInternal(approval);
-            broadcastAdminResult(Component.translatable("text.caauth.approved", approval.playerName, deviceEntry.get().getLabel(), requestId));
-            return true;
         }
+        synchronized (approvalsByToken) {
+            if (approvalsByRequestId.get(requestId) == approval) {
+                removeApprovalInternal(approval);
+            }
+        }
+        broadcastAdminResult(Component.translatable("text.caauth.approved", approval.playerName, label, requestId));
+        return true;
     }
 
     public boolean rejectPendingByRequestId(String requestId) {
+        PendingApproval approval;
         synchronized (approvalsByToken) {
-            PendingApproval approval = approvalsByRequestId.get(requestId);
+            approval = approvalsByRequestId.get(requestId);
             if (approval == null || approval.isExpired()) {
                 removeApprovalInternal(approval);
                 return false;
             }
-            removeApprovalInternal(approval);
-            broadcastAdminResult(Component.translatable("text.caauth.rejected", approval.playerName, approval.deviceLabel, requestId));
-            return true;
         }
+        synchronized (PlayerDevices.accountLock(approval.playerName)) {
+            PlayerDevices devices = PlayerDevices.load(approval.playerName).orElse(null);
+            if (devices != null) {
+                devices.findByRequestId(requestId).ifPresent(devices::removeDevice);
+                devices.save();
+            }
+        }
+        synchronized (approvalsByToken) {
+            removeApprovalInternal(approval);
+        }
+        broadcastAdminResult(Component.translatable("text.caauth.rejected", approval.playerName, approval.deviceLabel, requestId));
+        return true;
     }
 
     public List<PendingApproval> listPendingApprovals() {
@@ -241,6 +270,31 @@ public class CAPendingList {
             }
             result.sort((left, right) -> Long.compare(left.createdAt, right.createdAt));
             return result;
+        }
+    }
+
+    /** Creates one persistent-device approval capability without requiring a ServerPlayer. */
+    public PendingApproval ensurePendingApproval(PlayerDevices devices, PlayerDevices.DeviceEntry entry) {
+        synchronized (approvalsByToken) {
+            PendingApproval existing = approvalsByRequestId.get(entry.getRequestId());
+            if (existing != null && !existing.isExpired()) {
+                return existing;
+            }
+            PendingApproval approval = createOrRefreshApproval(devices.getPlayerName(), entry);
+            LOGGER.info("Device [{}] for player {} is waiting for approval", approval.requestId, devices.getPlayerName());
+            notifyAdmins(approval);
+            return approval;
+        }
+    }
+
+    /** Restores command/HTTP approval handles after a server restart. */
+    public void restorePersistentApprovals() {
+        for (PlayerDevices devices : PlayerDevices.loadAll()) {
+            for (PlayerDevices.DeviceEntry entry : devices.getDevices()) {
+                if (entry.isPending()) {
+                    ensurePendingApproval(devices, entry);
+                }
+            }
         }
     }
 
