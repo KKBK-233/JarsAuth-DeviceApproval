@@ -133,6 +133,11 @@ dependencies {
     // then special handling is done to allow a setup of a vanilla dependency without the use of an external repository.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
+    // Minecraft 1.20.1 already ships JNA/JNA-platform. Compile against the
+    // same version so the Windows client can protect its installation key
+    // with DPAPI without bundling another native library.
+    compileOnly 'net.java.dev.jna:jna-platform:5.12.1'
+
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
     // Example mod dependency with JEI - using fg.deobf() ensures the dependency is remapped to your development mappings
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

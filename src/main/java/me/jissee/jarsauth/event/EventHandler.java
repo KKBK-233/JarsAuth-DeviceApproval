@@ -12,10 +12,12 @@ import com.mojang.logging.LogUtils;
 import me.jissee.jarsauth.Compatibility;
 import me.jissee.jarsauth.client_auth.ApprovalHttpServer;
 import me.jissee.jarsauth.client_auth.CAPendingList;
+import me.jissee.jarsauth.client_auth.LoginAuthManager;
 import me.jissee.jarsauth.file_checksum.FCPendingList;
 import me.jissee.jarsauth.server_license.gui.JarCopyTool;
 import me.jissee.jarsauth.packet.FCBroadcastPacket;
 import me.jissee.jarsauth.packet.PacketHandler;
+import me.jissee.jarsauth.packet.AuthAcceptedPacket;
 import me.jissee.jarsauth.server_license.SLPendingList;
 import me.jissee.jarsauth.server_settings.ClientDetail;
 import me.jissee.jarsauth.server_settings.Description;
@@ -28,6 +30,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.player.PlayerNegotiationEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -60,6 +63,9 @@ public class EventHandler {
             EventHandler.server = dserver;
             reloadSettings();
             reloadDetails();
+            if (Settings.getClientAuthSetting().isEnabled()) {
+                CAPendingList.getInstance().restorePersistentApprovals();
+            }
             Description.extractAll(serverSaveDir);
 
             File jar = JarCopyTool.getJarFile();
@@ -79,6 +85,11 @@ public class EventHandler {
         PacketHandler.register();
     }
 
+    @SubscribeEvent
+    public static void onPlayerNegotiation(PlayerNegotiationEvent event) {
+        LoginAuthManager.getInstance().begin(event);
+    }
+
 
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event){
@@ -95,7 +106,15 @@ public class EventHandler {
             }
 
             if(Settings.getClientAuthSetting().isEnabled()){
-                CAPendingList.getInstance().playerLogin(svplr);
+                LoginAuthManager.getInstance().consumeAccepted(svplr.getName().getString()).ifPresent(accepted ->
+                        Compatibility.sendModPacket(svplr, new AuthAcceptedPacket(
+                                Settings.getServerID().getServerID(),
+                                svplr.getName().getString(),
+                                accepted.accountId().toString(),
+                                accepted.deviceId(),
+                                accepted.recoveryPublicKey()
+                        ))
+                );
                 CAPendingList.getInstance().notifyPendingApprovals(svplr);
             }
 
