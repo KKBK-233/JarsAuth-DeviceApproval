@@ -10,7 +10,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
 import me.jissee.jarsauth.Compatibility;
-import me.jissee.jarsauth.client_auth.CAPendingList;
 import me.jissee.jarsauth.event.EventHandler;
 import me.jissee.jarsauth.packet.FCBroadcastPacket;
 import me.jissee.jarsauth.server_license.SLPendingList;
@@ -158,12 +157,9 @@ public class FCPendingList {
                             r.expected2 = NONE;
                             r.got2 = NONE;
                             LOGGER.debug("Player {} passed FC authentication", r.player.getName().getString());
-                            if(Settings.getClientAuthSetting().isEnabled()){
-                                CAPendingList.getInstance().allowNew(player);
-                            }else{
-                                if(Settings.getServerLicenseSetting().isEnabled()){
-                                    SLPendingList.getInstance().allowNew(player);
-                                }
+                            if(!Settings.getClientAuthSetting().isEnabled()
+                                    && Settings.getServerLicenseSetting().isEnabled()){
+                                SLPendingList.getInstance().allowNew(player);
                             }
                         } else {
                             if(Settings.getFileChecksumSetting().isEnabled()){

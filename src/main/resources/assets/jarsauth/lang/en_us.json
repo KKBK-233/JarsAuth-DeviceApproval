@@ -2,9 +2,6 @@
   "text.fcauth.timeout": "File checksum timeout",
   "text.fcauth.fail": "File checksum failed",
 
-  "text.caauth.timeout": "Client authentication timeout",
-  "text.caauth.fail": "Client authentication failed",
-  "text.caauth.pending": "This device is waiting for administrator approval. Please reconnect after approval.",
   "text.caauth.pending.empty": "No pending device approvals",
   "text.caauth.pending.detail": "%s requested a new device \"%s\" (%s)",
   "text.caauth.approve.link": "[Approve]",
@@ -15,8 +12,6 @@
   "text.caauth.command.approve.fail": "Request %s was not found or has expired",
   "text.caauth.command.reject.ok": "Rejected request %s",
   "text.caauth.command.reject.fail": "Request %s was not found or has expired",
-  "text.firsttime": "As this is your first login, you will be automatically disconnected after registering with the server.\n(This is not an error, you can reconnect immediately)",
-
   "text.slauth.fail": "No valid server license",
 
   "text.reloaded": "Configuration reloaded",

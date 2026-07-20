@@ -136,7 +136,6 @@ public final class LoginAuthManager {
                 switch (response.getMode()) {
                     case DEVICE -> authenticateDevice(connection, login, devices, response, transcript);
                     case RECOVERY -> authenticateRecovery(connection, login, devices, response, transcript);
-                    case LEGACY_MIGRATION -> migrateLegacy(connection, login, devices, response, transcript);
                     case ENROLL -> enroll(connection, login, devices, response, transcript);
                 }
             }
@@ -183,44 +182,7 @@ public final class LoginAuthManager {
             return;
         }
         PlayerDevices.DeviceEntry entry = devices.registerV2Device(
-                response.getDevicePublicKey(), response.getDeviceLabel(), true, null
-        );
-        devices.save();
-        succeed(login, devices, entry);
-    }
-
-    private void migrateLegacy(Connection connection, LoginSession login, PlayerDevices devices,
-                               AuthLoginResponse response, byte[] transcript) throws Exception {
-        if (devices.isV2()) {
-            String deviceId = CryptoV2.deviceId(response.getDevicePublicKey());
-            Optional<PlayerDevices.DeviceEntry> migrated = devices.findByDeviceId(deviceId);
-            if (migrated.isPresent() && migrated.get().isApproved()
-                    && MessageDigest.isEqual(migrated.get().getPublicKeyBytes(), response.getDevicePublicKey())) {
-                devices.markSeen(migrated.get());
-                succeed(login, devices, migrated.get());
-                return;
-            }
-            fail(connection, login, "Legacy authentication is disabled for this account");
-            return;
-        }
-        if (response.getLegacySecret().length != 16 || response.getRecoveryPublicKey().length == 0) {
-            fail(connection, login, "Legacy migration data is incomplete");
-            return;
-        }
-        UUID rawDeviceId = Codec.bytesToUUID(response.getLegacySecret());
-        UUID hashedDeviceId = PlayerDevices.hashDeviceId(rawDeviceId);
-        Optional<PlayerDevices.DeviceEntry> legacy = devices.findByHashedDeviceId(hashedDeviceId);
-        if (legacy.isEmpty() || !legacy.get().isApproved()) {
-            fail(connection, login, "Legacy device credential is invalid");
-            return;
-        }
-        if (!CryptoV2.verify(CryptoV2.decodePublicKey(response.getRecoveryPublicKey()), transcript, response.getRecoverySignature())) {
-            fail(connection, login, "Recovery-key proof is invalid");
-            return;
-        }
-        devices.enableV2(response.getRecoveryPublicKey());
-        PlayerDevices.DeviceEntry entry = devices.registerV2Device(
-                response.getDevicePublicKey(), response.getDeviceLabel(), true, null
+                response.getDevicePublicKey(), response.getDeviceLabel(), true
         );
         devices.save();
         succeed(login, devices, entry);
@@ -236,16 +198,15 @@ public final class LoginAuthManager {
             }
             devices.enableV2(response.getRecoveryPublicKey());
             PlayerDevices.DeviceEntry entry = devices.registerV2Device(
-                    response.getDevicePublicKey(), response.getDeviceLabel(), true, null
+                    response.getDevicePublicKey(), response.getDeviceLabel(), true
             );
             devices.save();
             succeed(login, devices, entry);
             return;
         }
 
-        byte[] candidateRecovery = devices.isV2() ? null : response.getRecoveryPublicKey();
         PlayerDevices.DeviceEntry entry = devices.registerV2Device(
-                response.getDevicePublicKey(), response.getDeviceLabel(), false, candidateRecovery
+                response.getDevicePublicKey(), response.getDeviceLabel(), false
         );
         if (entry.isApproved()) {
             devices.markSeen(entry);

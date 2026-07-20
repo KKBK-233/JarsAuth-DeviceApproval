@@ -7,6 +7,5 @@ package me.jissee.jarsauth.client_auth;
 public enum AuthMode {
     DEVICE,
     RECOVERY,
-    LEGACY_MIGRATION,
     ENROLL
 }

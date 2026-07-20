@@ -24,7 +24,6 @@ public final class AuthLoginResponse implements IntSupplier {
     private final byte[] deviceSignature;
     private final byte[] recoveryPublicKey;
     private final byte[] recoverySignature;
-    private final byte[] legacySecret;
 
     public AuthLoginResponse(
             boolean enabled,
@@ -35,8 +34,7 @@ public final class AuthLoginResponse implements IntSupplier {
             byte[] devicePublicKey,
             byte[] deviceSignature,
             byte[] recoveryPublicKey,
-            byte[] recoverySignature,
-            byte[] legacySecret
+            byte[] recoverySignature
     ) {
         this.enabled = enabled;
         this.sessionId = sessionId;
@@ -47,7 +45,6 @@ public final class AuthLoginResponse implements IntSupplier {
         this.deviceSignature = copy(deviceSignature);
         this.recoveryPublicKey = copy(recoveryPublicKey);
         this.recoverySignature = copy(recoverySignature);
-        this.legacySecret = copy(legacySecret);
     }
 
     private static byte[] copy(byte[] value) {
@@ -64,7 +61,6 @@ public final class AuthLoginResponse implements IntSupplier {
         buf.writeByteArray(message.deviceSignature);
         buf.writeByteArray(message.recoveryPublicKey);
         buf.writeByteArray(message.recoverySignature);
-        buf.writeByteArray(message.legacySecret);
     }
 
     public static AuthLoginResponse decode(FriendlyByteBuf buf) {
@@ -83,8 +79,7 @@ public final class AuthLoginResponse implements IntSupplier {
                 buf.readByteArray(1024),
                 buf.readByteArray(1024),
                 buf.readByteArray(1024),
-                buf.readByteArray(1024),
-                buf.readByteArray(64)
+                buf.readByteArray(1024)
         );
     }
 
@@ -115,5 +110,4 @@ public final class AuthLoginResponse implements IntSupplier {
     public byte[] getDeviceSignature() { return deviceSignature.clone(); }
     public byte[] getRecoveryPublicKey() { return recoveryPublicKey.clone(); }
     public byte[] getRecoverySignature() { return recoverySignature.clone(); }
-    public byte[] getLegacySecret() { return legacySecret.clone(); }
 }

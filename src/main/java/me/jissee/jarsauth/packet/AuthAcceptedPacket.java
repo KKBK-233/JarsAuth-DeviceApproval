@@ -53,7 +53,7 @@ public final class AuthAcceptedPacket {
         context.enqueueWork(() -> {
             try {
                 Minecraft minecraft = Minecraft.getInstance();
-                ClientCredentialStore store = ClientLoginAuth.getStore(minecraft.gameDirectory.toPath());
+                ClientCredentialStore store = ClientLoginAuth.getStore();
                 store.markDeviceAccepted(message.serverId, message.playerName);
                 Optional<String> recoveryCode = store.onServerAccepted(
                         message.serverId, message.playerName, message.recoveryPublicKey

@@ -87,7 +87,7 @@ public class ModCommand {
                 return 0;
             }
             for (var device : devices.getDevices()) {
-                String id = device.getDeviceId() == null ? "legacy" : device.getDeviceId();
+                String id = device.getDeviceId() == null ? "unknown" : device.getDeviceId();
                 Compatibility.consoleMessage(src, Component.literal("%s | %s | %s".formatted(
                         id, device.getStatus(), device.getLabel())));
             }
