@@ -4,7 +4,6 @@ package me.jissee.jarsauth.packet;
 import me.jissee.jarsauth.client_auth.ClientCredentialStore;
 import me.jissee.jarsauth.client_auth.CryptoV2;
 import me.jissee.jarsauth.client_auth.RecoveryOperation;
-import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
 
@@ -68,8 +67,7 @@ public final class RecoveryOperationRequest {
             byte[] newRecoveryPublicKey = new byte[0];
             byte[] newRecoverySignature = new byte[0];
             try {
-                Minecraft minecraft = Minecraft.getInstance();
-                ClientCredentialStore store = ClientLoginAuth.getStore(minecraft.gameDirectory.toPath());
+                ClientCredentialStore store = ClientLoginAuth.getStore();
                 Optional<KeyPair> recovery = store.loadRecoveryOrImport(message.serverId, message.playerName);
                 if (recovery.isPresent()) {
                     KeyPair replacement = null;

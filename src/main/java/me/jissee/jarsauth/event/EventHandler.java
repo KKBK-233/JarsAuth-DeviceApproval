@@ -6,8 +6,6 @@
  */
 package me.jissee.jarsauth.event;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
 import me.jissee.jarsauth.Compatibility;
 import me.jissee.jarsauth.client_auth.ApprovalHttpServer;
@@ -47,7 +45,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class EventHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static String serverSaveDir;
 
     private static final AtomicBoolean ifThisVariableIsTrueThenTheServerIsInRecordingModeOtherwiseTheServerIsInAuthenticatingMode = new AtomicBoolean();
@@ -129,8 +126,7 @@ public class EventHandler {
             return;
         }
 
-        // Authentication state touches ServerPlayer and the player list, so it must
-        // advance on the logical server thread instead of independent busy loops.
+        // 这些状态会访问玩家列表，必须在服务端逻辑线程推进。
         FCPendingList.getInstance().tick();
         CAPendingList.getInstance().tick();
         SLPendingList.getInstance().tick();

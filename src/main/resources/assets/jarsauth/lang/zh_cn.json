@@ -1,9 +1,6 @@
 {
   "text.fcauth.timeout": "文件校验超时",
   "text.fcauth.fail": "文件校验失败",
-  "text.caauth.timeout": "客户端认证超时",
-  "text.caauth.fail": "客户端认证失败",
-  "text.caauth.pending": "此设备正在等待管理员审批，请在审批通过后重新连接。",
   "text.caauth.pending.empty": "当前没有待审批设备",
   "text.caauth.pending.detail": "%s 申请了新设备“%s”（%s）",
   "text.caauth.approve.link": "[批准]",
@@ -14,7 +11,6 @@
   "text.caauth.command.approve.fail": "请求 %s 不存在或已过期",
   "text.caauth.command.reject.ok": "已拒绝请求 %s",
   "text.caauth.command.reject.fail": "请求 %s 不存在或已过期",
-  "text.firsttime": "这是你的首次登录，设备注册完成后会自动断开连接。\n（这不是错误，你可以立即重新连接）",
   "text.slauth.fail": "没有有效的服务端许可",
   "text.reloaded": "配置已重新加载",
   "text.record.off": "记录模式已关闭",

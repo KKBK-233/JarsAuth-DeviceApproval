@@ -9,11 +9,9 @@ package me.jissee.jarsauth;
 import com.mojang.brigadier.context.CommandContext;
 import me.jissee.jarsauth.event.EventHandler;
 import me.jissee.jarsauth.packet.PacketHandler;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -41,20 +39,11 @@ public class Compatibility {
     public static String getClientRootDir(){
         return Minecraft.getInstance().gameDirectory.getAbsolutePath() + File.separator;
     }
-    public static void sendToServer(Object packet){
-        PacketHandler.sendToServer(packet);
-    }
-    public static ServerPlayer getPlayerByName(String name){
-        return EventHandler.getServer().getPlayerList().getPlayerByName(name);
-    }
     public static Component translatable(String key){
         return Component.translatable(key);
     }
     public static Component literal(String text){
         return Component.literal(text);
-    }
-    public static String getStringName() {
-        return Minecraft.getInstance().player.getName().getString();
     }
     public static void consoleMessage(CommandContext<CommandSourceStack> ctx, Component msg){
         ctx.getSource().sendSystemMessage(msg);
@@ -67,8 +56,5 @@ public class Compatibility {
             return List.of();
         }
         return new ArrayList<>(EventHandler.getServer().getPlayerList().getPlayers());
-    }
-    public static MutableComponent greenLiteral(String text) {
-        return Component.literal(text).withStyle(ChatFormatting.GREEN);
     }
 }

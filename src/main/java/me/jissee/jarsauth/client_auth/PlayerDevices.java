@@ -34,14 +34,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * The persistent server-side account and device record.
- *
- * <p>Version 1 files only contained {@code playerName} and a list of devices
- * identified by an MD5-hashed UUID.  Missing version 2 fields are populated in
- * memory when such a file is read, so upgrading does not invalidate an already
- * approved installation.</p>
- */
+/** 服务端持久化的账户与公钥设备记录。 */
 public class PlayerDevices {
     public static final int CURRENT_SCHEMA_VERSION = 2;
 
@@ -57,7 +50,6 @@ public class PlayerDevices {
     private long authRevision;
     private ArrayList<DeviceEntry> devices;
 
-    /** Kept for source compatibility with the version 1 store. */
     public PlayerDevices(String playerName, ArrayList<DeviceEntry> devices) {
         this.playerName = Objects.requireNonNull(playerName, "playerName");
         this.devices = devices == null ? new ArrayList<>() : devices;
@@ -146,24 +138,6 @@ public class PlayerDevices {
         }
     }
 
-    /** Version 1 registration path. New protocol code should use {@link #registerV2Device}. */
-    public synchronized DeviceEntry registerNewDevice(UUID rawDeviceId, String label, boolean approved) {
-        UUID hashedDeviceId = hashDeviceId(rawDeviceId);
-        DeviceEntry existing = findByHashedDeviceId(hashedDeviceId).orElse(null);
-        if (existing != null) {
-            existing.touch();
-            existing.setLabel(label);
-            if (approved) {
-                existing.approve();
-            }
-            return existing;
-        }
-        DeviceEntry entry = DeviceEntry.create(hashedDeviceId, label, approved);
-        devices.add(entry);
-        bumpAuthRevision();
-        return entry;
-    }
-
     /** Registers a public-key device, or refreshes the matching existing record. */
     public synchronized DeviceEntry registerV2Device(String deviceId, String publicKey, String label, boolean approved) {
         requireText(deviceId, "deviceId");
@@ -195,60 +169,14 @@ public class PlayerDevices {
         return entry;
     }
 
-    public synchronized DeviceEntry registerV2Device(String deviceId, String publicKey, String label) {
-        return registerV2Device(deviceId, publicKey, label, false);
-    }
-
     /** Binary-key convenience API used by the login protocol. Keys are stored as Base64 in JSON. */
-    public synchronized DeviceEntry registerV2Device(byte[] publicKey, String label, boolean approved,
-                                                      byte[] candidateRecoveryPublicKey) {
+    public synchronized DeviceEntry registerV2Device(byte[] publicKey, String label, boolean approved) {
         Objects.requireNonNull(publicKey, "publicKey");
         if (publicKey.length == 0) {
             throw new IllegalArgumentException("publicKey must not be empty");
         }
         String encodedPublicKey = Base64.getEncoder().encodeToString(publicKey);
-        DeviceEntry entry = registerV2Device(deviceId(publicKey), encodedPublicKey, label, approved);
-        entry.setCandidateRecoveryPublicKey(candidateRecoveryPublicKey);
-        return entry;
-    }
-
-    /**
-     * Converts an authenticated legacy UUID device to a public-key device in place.
-     * Keeping the same entry preserves its approval state and audit timestamps.
-     */
-    public synchronized Optional<DeviceEntry> migrateLegacyDevice(UUID hashedDeviceId, String deviceId,
-                                                                   String publicKey, String label) {
-        requireText(deviceId, "deviceId");
-        requireText(publicKey, "publicKey");
-        DeviceEntry legacy = findByHashedDeviceId(hashedDeviceId).orElse(null);
-        if (legacy == null) {
-            return Optional.empty();
-        }
-        DeviceEntry idOwner = findByDeviceId(deviceId).orElse(null);
-        DeviceEntry keyOwner = findByPublicKey(publicKey).orElse(null);
-        if ((idOwner != null && idOwner != legacy) || (keyOwner != null && keyOwner != legacy)) {
-            throw new IllegalArgumentException("v2 device identity is already registered");
-        }
-        legacy.deviceId = deviceId;
-        legacy.publicKey = publicKey;
-        legacy.hashedDeviceId = null;
-        legacy.setLabel(label);
-        legacy.touch();
-        bumpAuthRevision();
-        return Optional.of(legacy);
-    }
-
-    /** Convenience migration overload accepting the old raw UUID. */
-    public synchronized Optional<DeviceEntry> migrateLegacyRawDevice(UUID rawDeviceId, String deviceId,
-                                                                      String publicKey, String label) {
-        return migrateLegacyDevice(hashDeviceId(rawDeviceId), deviceId, publicKey, label);
-    }
-
-    public Optional<DeviceEntry> findByHashedDeviceId(UUID hashedDeviceId) {
-        if (hashedDeviceId == null) {
-            return Optional.empty();
-        }
-        return devices.stream().filter(device -> hashedDeviceId.equals(device.hashedDeviceId)).findFirst();
+        return registerV2Device(deviceId(publicKey), encodedPublicKey, label, approved);
     }
 
     public Optional<DeviceEntry> findByDeviceId(String deviceId) {
@@ -391,11 +319,6 @@ public class PlayerDevices {
         }
     }
 
-    public static UUID hashDeviceId(UUID rawDeviceId) {
-        byte[] hashed = Codec.md5(Codec.uuidToBytes(rawDeviceId));
-        return Codec.bytesToUUID(hashed);
-    }
-
     private void normalize() {
         schemaVersion = CURRENT_SCHEMA_VERSION;
         if (accountId == null) {
@@ -465,20 +388,10 @@ public class PlayerDevices {
     }
 
     public static class DeviceEntry {
-        // Version 1 identity. It is deliberately retained until explicit migration succeeds.
-        private UUID hashedDeviceId;
-
-        // Version 2 identity.
         private String deviceId;
         private String publicKey;
         private DeviceStatus status;
-
-        // Used only while a pre-v2 account waits for approval of its migration.
-        private String candidateRecoveryPublicKey;
-
         private String label;
-        // Retained in JSON for transparent loading of old records.
-        private boolean approved;
         private long createdAt;
         private long approvedAt;
         private long lastSeenAt;
@@ -488,37 +401,26 @@ public class PlayerDevices {
         public DeviceEntry() {
         }
 
-        public static DeviceEntry create(UUID hashedDeviceId, String label, boolean approved) {
+        public static DeviceEntry createV2(String deviceId, String publicKey, String label, DeviceStatus status) {
+            requireText(deviceId, "deviceId");
+            requireText(publicKey, "publicKey");
             long now = System.currentTimeMillis();
             DeviceEntry entry = new DeviceEntry();
-            entry.hashedDeviceId = hashedDeviceId;
+            entry.deviceId = deviceId;
+            entry.publicKey = publicKey;
             entry.label = label;
-            entry.status = approved ? DeviceStatus.APPROVED : DeviceStatus.PENDING;
-            entry.approved = approved;
+            entry.status = status == null ? DeviceStatus.PENDING : status;
             entry.createdAt = now;
-            entry.approvedAt = approved ? now : 0;
+            entry.approvedAt = entry.status == DeviceStatus.APPROVED ? now : 0;
             entry.lastSeenAt = now;
             entry.requestId = newRequestId();
             return entry;
         }
 
-        public static DeviceEntry createV2(String deviceId, String publicKey, String label, DeviceStatus status) {
-            requireText(deviceId, "deviceId");
-            requireText(publicKey, "publicKey");
-            DeviceEntry entry = create(null, label, status == DeviceStatus.APPROVED);
-            entry.deviceId = deviceId;
-            entry.publicKey = publicKey;
-            entry.status = status == null ? DeviceStatus.PENDING : status;
-            entry.approved = entry.status == DeviceStatus.APPROVED;
-            return entry;
-        }
-
         private void normalize() {
-            // A missing status identifies a v1 JSON entry; its boolean is authoritative.
             if (status == null) {
-                status = approved ? DeviceStatus.APPROVED : DeviceStatus.PENDING;
+                status = DeviceStatus.PENDING;
             }
-            approved = status == DeviceStatus.APPROVED;
             long now = System.currentTimeMillis();
             if (createdAt <= 0L) {
                 createdAt = now;
@@ -526,7 +428,7 @@ public class PlayerDevices {
             if (lastSeenAt <= 0L) {
                 lastSeenAt = createdAt;
             }
-            if (approved && approvedAt <= 0L) {
+            if (status == DeviceStatus.APPROVED && approvedAt <= 0L) {
                 approvedAt = createdAt;
             }
             if (requestId == null || requestId.isBlank()) {
@@ -540,27 +442,19 @@ public class PlayerDevices {
 
         public void approve() {
             this.status = DeviceStatus.APPROVED;
-            this.approved = true;
             this.approvedAt = System.currentTimeMillis();
             this.revokedAt = 0L;
             touch();
         }
 
-        /** Legacy spelling; a rejected persisted entry is treated as revoked. */
-        public void reject() {
-            revoke();
-        }
-
         public void revoke() {
             this.status = DeviceStatus.REVOKED;
-            this.approved = false;
             this.revokedAt = System.currentTimeMillis();
             touch();
         }
 
         public void markPending() {
             this.status = DeviceStatus.PENDING;
-            this.approved = false;
             this.approvedAt = 0L;
             this.revokedAt = 0L;
             this.requestId = newRequestId();
@@ -569,10 +463,6 @@ public class PlayerDevices {
 
         public void touch() {
             this.lastSeenAt = System.currentTimeMillis();
-        }
-
-        public UUID getHashedDeviceId() {
-            return hashedDeviceId;
         }
 
         public String getDeviceId() {
@@ -591,19 +481,9 @@ public class PlayerDevices {
             return getStatus() == DeviceStatus.PENDING;
         }
 
-        public byte[] getCandidateRecoveryPublicKey() {
-            return decodeBase64(candidateRecoveryPublicKey);
-        }
-
-        public void setCandidateRecoveryPublicKey(byte[] candidateRecoveryPublicKey) {
-            this.candidateRecoveryPublicKey = candidateRecoveryPublicKey == null
-                    ? null
-                    : Base64.getEncoder().encodeToString(candidateRecoveryPublicKey);
-        }
-
         public DeviceStatus getStatus() {
             if (status == null) {
-                status = approved ? DeviceStatus.APPROVED : DeviceStatus.PENDING;
+                status = DeviceStatus.PENDING;
             }
             return status;
         }

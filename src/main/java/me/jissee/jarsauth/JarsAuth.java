@@ -9,7 +9,6 @@ package me.jissee.jarsauth;
 
 import me.jissee.jarsauth.command.ModCommand;
 import me.jissee.jarsauth.event.EventHandler;
-import me.jissee.jarsauth.server_license.gui.LicenseManager;
 import me.jissee.jarsauth.server_settings.Description;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.IEventBus;

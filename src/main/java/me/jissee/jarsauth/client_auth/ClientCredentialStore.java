@@ -5,7 +5,6 @@ package me.jissee.jarsauth.client_auth;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonObject;
 import com.sun.jna.platform.win32.Crypt32Util;
 
 import java.io.IOException;
@@ -20,7 +19,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.KeyPair;
-import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.time.Instant;
@@ -29,7 +27,6 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Persistent client credentials shared by all launcher instances for the same
@@ -50,24 +47,17 @@ public final class ClientCredentialStore {
 
     private final Path root;
     private final Path credentialsDirectory;
-    private final Path legacyMinecraftDirectory;
     private final boolean windows;
     private final byte[] machineBindingMaterial;
     private volatile byte[] cachedInstallKey;
 
     public ClientCredentialStore() {
-        this(defaultRootDirectory(), null);
+        this(defaultRootDirectory());
     }
 
-    public ClientCredentialStore(Path legacyMinecraftDirectory) {
-        this(defaultRootDirectory(), legacyMinecraftDirectory);
-    }
-
-    public ClientCredentialStore(Path root, Path legacyMinecraftDirectory) {
+    public ClientCredentialStore(Path root) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
         this.credentialsDirectory = this.root.resolve("credentials");
-        this.legacyMinecraftDirectory = legacyMinecraftDirectory == null
-                ? null : legacyMinecraftDirectory.toAbsolutePath().normalize();
         this.windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
         this.machineBindingMaterial = calculateMachineBindingMaterial();
     }
@@ -310,27 +300,6 @@ public final class ClientCredentialStore {
             restrictFile(target);
             return target;
         });
-    }
-
-    /** Read the old device-files UUID without copying it into the new store. */
-    public Optional<UUID> readLegacySecret(String serverId, String playerName) {
-        if (legacyMinecraftDirectory == null) return Optional.empty();
-        return readLegacySecret(legacyMinecraftDirectory, serverId, playerName);
-    }
-
-    public static Optional<UUID> readLegacySecret(
-            Path minecraftDirectory, String serverId, String playerName) {
-        validateScope(serverId, playerName);
-        Path file = minecraftDirectory.resolve("device-files")
-                .resolve(legacyFileName(serverId, playerName));
-        if (!Files.isRegularFile(file)) return Optional.empty();
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            JsonObject object = GSON.fromJson(reader, JsonObject.class);
-            if (object == null || !object.has("deviceId")) return Optional.empty();
-            return Optional.of(UUID.fromString(object.get("deviceId").getAsString()));
-        } catch (RuntimeException | IOException e) {
-            return Optional.empty();
-        }
     }
 
     public static String deviceId(byte[] x509PublicKey) {
@@ -594,16 +563,6 @@ public final class ClientCredentialStore {
         if (host == null || host.isBlank()) host = System.getProperty("user.name", "device");
         String id = CryptoV2.deviceId(publicKey);
         return host + "-" + id.substring(0, 6);
-    }
-
-    private static String legacyFileName(String serverId, String playerName) {
-        try {
-            byte[] digest = MessageDigest.getInstance("MD5")
-                    .digest(serverId.getBytes(StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(digest) + "." + playerName + ".json";
-        } catch (Exception impossible) {
-            throw new AssertionError(impossible);
-        }
     }
 
     private static byte[] recoveryScope(String serverId, String playerName) {

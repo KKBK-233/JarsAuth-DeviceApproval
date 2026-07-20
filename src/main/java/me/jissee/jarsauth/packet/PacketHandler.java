@@ -18,7 +18,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 import static me.jissee.jarsauth.JarsAuth.MODID;
 
 public class PacketHandler {
-    private static final String PROTOCOL_VERSION = "3";
+    private static final String PROTOCOL_VERSION = "4";
     private static final SimpleChannel INSTANCE = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MODID,"message"),
             () -> PROTOCOL_VERSION,
@@ -42,22 +42,6 @@ public class PacketHandler {
                 FCBroadcastPacket::encode,
                 FCBroadcastPacket::decode,
                 FCBroadcastPacket::handle
-        );
-
-        INSTANCE.registerMessage(
-                i++,
-                CAAuthPacket.class,
-                CAAuthPacket::encode,
-                CAAuthPacket::decode,
-                CAAuthPacket::handle
-        );
-
-        INSTANCE.registerMessage(
-                i++,
-                CABroadcastPacket.class,
-                CABroadcastPacket::encode,
-                CABroadcastPacket::decode,
-                CABroadcastPacket::handle
         );
 
         INSTANCE.messageBuilder(AuthLoginQuery.class, i++, NetworkDirection.LOGIN_TO_CLIENT)
