@@ -123,9 +123,10 @@ public class ManageWindow extends AbstractModWindow {
 
         File[] files;
         if (filter != null) {
-            files = folder.listFiles(filter);
+            files = folder.listFiles((dir, name) -> name.endsWith(ServerLicense.LICENSE_EXTENSION)
+                    && filter.accept(dir, name));
         } else {
-            files = folder.listFiles();
+            files = folder.listFiles((dir, name) -> name.endsWith(ServerLicense.LICENSE_EXTENSION));
         }
 
         if (files != null) {
