@@ -11,25 +11,46 @@ Configuration Item Description
     This value is automatically generated when the server starts for the first time,
     used to distinguish different servers, and should not be modified.
 
-[setting-client-auth.json] Client Authentication
-    Each client is assigned an ID when it connects to the server for the first time.
-    If the client's ID does not match the player's name, the connection will be rejected.
+[setting-client-auth.json] Device Login and Approval
+    Registered devices authenticate before entering the world, without in-game passwords.
+    A new player's first device is enrolled automatically. Existing players need their recovery backup
+    or administrator approval when using a new device. Use a whitelist to prevent username squatting.
+    Recovery backups are stored under the user's shared JarsAuth/recovery-backups/ directory.
+    Put the complete backup into recovery-import/ on a new computer, then reconnect.
 
     (boolean) "enabled": false
         Whether to enable this feature
 
     (int) "interval": 10;
-        (seconds) Time interval between two verifications
+        Legacy field; does not control the current login challenge lifetime
 
     (int) "timeout": 5;
-        (seconds) The client will be disconnected if no verification message is received within this time
+        Legacy field; current login challenges expire after 25 seconds
+
+    (int) "approvalPort": 8787;
+        HTTP port for the approval page
+
+    (string) "approvalBindHost": "0.0.0.0";
+        Listens on all addresses by default; use "127.0.0.1" for server-local access
+
+    (string) "approvalPublicBaseUrl": "http://127.0.0.1:8787";
+        Address reachable by administrators; configure an HTTPS entry point for remote access
+
+    (int) "approvalPermissionLevel": 4;
+        Permission level for approval notifications; management commands require level 4
+
+    (int) "approvalExpireMinutes": 30;
+        Approval request lifetime in minutes
+
+    Run /jarsauth reload after configuration changes. Do not share recovery backups or complete approval links.
+    Documentation: https://github.com/KKBK-233/JarsAuth-DeviceApproval
 
 [setting-file-checksum.json] File Checksum
     Check the local files of the client for version management.
     The server needs to record the client's file characteristics in advance. The configuration steps are as follows:
         1. Plan your mod pack and add all the mods and other files you want to use into the corresponding folders;
         2. After preparation, run the test server, execute the server command /jarsauth record to enter recording mode.
-           In this mode, the server will allow any client to connect and record their details;
+           This mode records client file characteristics and does not disable device login authentication;
         3. Connect to the server with the client;
         4. When you see "Client details reloaded" in the server console, a file named [acc-x.json] will be generated in the save folder.
            Disconnect and run the server command /jarsauth record again to exit recording mode;

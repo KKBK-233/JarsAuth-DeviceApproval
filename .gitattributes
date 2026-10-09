@@ -1,5 +1,17 @@
-# Disable autocrlf on generated files, they always generate with LF
-# Add any extra files or paths here to make git stop saying they
-# are changed when only line endings change.
+# 文档、构建脚本和文本资源统一使用 LF，避免跨平台资源差异。
+* text=auto
+*.md text eol=lf
+*.py text eol=lf
+*.gradle text eol=lf
+*.properties text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.mcmeta text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+
+# 生成的数据始终使用 LF。
 src/generated/**/.cache/cache text eol=lf
 src/generated/**/*.json text eol=lf

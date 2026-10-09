@@ -1,3 +1,4 @@
+// 构建插件使用官方仓库，项目名称对应独立维护版。
 pluginManagement {
     repositories {
         gradlePluginPortal()
@@ -11,3 +12,5 @@ pluginManagement {
 plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.5.0'
 }
+
+rootProject.name = 'JarsAuth-DeviceApproval'
