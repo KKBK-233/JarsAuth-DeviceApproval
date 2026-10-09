@@ -16,11 +16,13 @@ out
 # gradle
 build
 .gradle
+mcmodsrepo
 
 # other
 eclipse
 run
 logs
+__pycache__
 
 # Files from Forge MDK
 forge*changelog.txt

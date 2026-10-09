@@ -7,25 +7,45 @@
 [server-id.txt] 服务端ID
     这个值在服务器第一次启动时自动生成，用于区分不同的服务端，不应该修改
 
-[setting-client-auth.json] 客户端验证
-    每个客户端在初次连接到服务器时都会被分配一个 ID ，
-    如果客户端的 ID 与玩家名称不匹配，则会被拒绝链接
+[setting-client-auth.json] 设备登录与审批
+    已登记设备在进入世界前自动验证，无需游戏内输入密码。
+    新玩家的首台设备自动登记；已有玩家换设备时使用恢复备份，或等待管理员审批。
+    恢复备份位于系统用户的 JarsAuth/recovery-backups/，换电脑时放入 recovery-import/。
+    首次登记不能阻止用户名抢注，正式开服建议配合白名单。
 
     (boolean) "enabled": false
         是否开启此功能
 
     (int) "interval": 10;
-        (秒) 每两次验证的时间间隔
+        历史保留字段，不控制当前登录挑战的有效期
 
     (int) "timeout": 5;
-        (秒) 超时时间，超过此时间仍未收到验证消息则断开连接
+        历史保留字段，当前登录挑战有效期固定为 25 秒
+
+    (int) "approvalPort": 8787;
+        审批网页的 HTTP 端口
+
+    (string) "approvalBindHost": "0.0.0.0";
+        默认监听全部地址，仅在服务器本机使用时改成 "127.0.0.1"
+
+    (string) "approvalPublicBaseUrl": "http://127.0.0.1:8787";
+        管理员实际访问的审批地址，远程使用时配置 HTTPS 入口
+
+    (int) "approvalPermissionLevel": 4;
+        接收审批通知的权限等级；管理命令固定要求等级 4
+
+    (int) "approvalExpireMinutes": 30;
+        待审批请求的有效期（分钟）
+
+    配置修改后执行 /jarsauth reload。完整审批链接和恢复备份不要公开转发。
+    使用说明：https://github.com/KKBK-233/JarsAuth-DeviceApproval
 
 [setting-file-checksum.json] 文件校验
     检查客户端的本地文件，以便进行版本管理
     服务端需要提前记录客户端文件特征，配置方式如下：
         1. 规划好你的整合包，把所有要使用的模组及其他文件添加进对应的文件夹；
         2. 准备好后运行测试用服务端，运行服务端命令 /jarsauth record，打开记录模式。
-           此模式下服务端会允许任何客户端的连接，并记录下他们的细节；
+           此模式记录客户端的文件特征，不会关闭设备登录认证；
         3. 用客户端连接服务端；
         4. 当在服务端控制台中看到 “Client details reloaded” ，存档文件夹中会生成一个[acc-x.json]的文件。
            然后断开连接，在次运行服务端命令 /jarsauth record ，关闭记录模式；
